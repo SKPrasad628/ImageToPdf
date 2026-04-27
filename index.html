@@ -639,16 +639,44 @@ let selectedPdfPage = null;
 let currentTab = 'convert';
 
 // ── UNDO/REDO HISTORY ──
-let history = [];  // array of snapshots (JSON of images)
+// We store only lightweight metadata (no base64 src/originalSrc/thumb) in history.
+// The actual pixel data lives in imgStore keyed by a stable imgId.
+let history = [];
 let historyIndex = -1;
-let undoLabels = []; // human-readable action labels
+let undoLabels = [];
+let imgStore = {}; // imgId -> {src, originalSrc, thumb}
+let _imgIdCounter = 0;
+const MAX_HISTORY = 20; // cap to avoid OOM on mobile
+
+function _imgId() { return 'img_' + (++_imgIdCounter); }
+
+function _lightImages() {
+  // Snapshot only the non-pixel metadata
+  return images.map(img => ({
+    _id: img._id,
+    name: img.name, size: img.size,
+    rotation: img.rotation, flipH: img.flipH, flipV: img.flipV,
+    filters: {...(img.filters||{})}
+  }));
+}
+
+function _restoreImages(light) {
+  return light.map(meta => {
+    const stored = imgStore[meta._id] || {};
+    return { ...meta, src: stored.src, originalSrc: stored.originalSrc, thumb: stored.thumb };
+  });
+}
 
 function snapshot(label) {
-  // Trim future states
   history = history.slice(0, historyIndex + 1);
   undoLabels = undoLabels.slice(0, historyIndex + 1);
-  history.push(JSON.stringify(images.map(img => ({...img}))));
+  history.push(JSON.stringify(_lightImages()));
   undoLabels.push(label || 'Action');
+  // Cap history size — drop oldest entries
+  if (history.length > MAX_HISTORY) {
+    history.shift();
+    undoLabels.shift();
+  }
   historyIndex = history.length - 1;
   updateUndoUI();
 }
@@ -656,7 +684,7 @@ function snapshot(label) {
 function undo() {
   if (historyIndex <= 0) return;
   historyIndex--;
-  images = JSON.parse(history[historyIndex]);
+  images = _restoreImages(JSON.parse(history[historyIndex]));
   refreshAll();
   showToast('↩ Undid: ' + (undoLabels[historyIndex + 1] || 'action'));
   updateUndoUI();
@@ -665,7 +693,7 @@ function undo() {
 function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
-  images = JSON.parse(history[historyIndex]);
+  images = _restoreImages(JSON.parse(history[historyIndex]));
   refreshAll();
   showToast('↪ Redid: ' + (undoLabels[historyIndex] || 'action'));
   updateUndoUI();
@@ -762,6 +790,28 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// Generate a small thumbnail dataURL for display (max 320px wide/tall)
+function generateThumb(fullSrc) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 320;
+      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const cvs = document.createElement('canvas');
+      cvs.width = w; cvs.height = h;
+      cvs.getContext('2d').drawImage(img, 0, 0, w, h);
+      const thumb = cvs.toDataURL('image/jpeg', 0.7);
+      // Free canvas
+      cvs.width = 0; cvs.height = 0;
+      res(thumb);
+    };
+    img.onerror = () => res(fullSrc);
+    img.src = fullSrc;
+  });
+}
+
 function handleFiles(files, target) {
   const arr = Array.from(files);
   const pdfs = arr.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
@@ -779,9 +829,14 @@ function handleFiles(files, target) {
     let loaded = 0;
     batch.forEach(file => {
       const reader = new FileReader();
-      reader.onload = e => {
+      reader.onload = async e => {
+        const fullSrc = e.target.result;
+        const id = _imgId();
+        const thumb = await generateThumb(fullSrc);
+        imgStore[id] = { src: fullSrc, originalSrc: fullSrc, thumb };
         images.push({
-          src: e.target.result, originalSrc: e.target.result,
+          _id: id,
+          src: fullSrc, originalSrc: fullSrc, thumb,
           name: file.name, size: file.size,
           rotation: 0, flipH: false, flipV: false, filters: {}
         });
@@ -863,10 +918,16 @@ async function loadPdfFile(file, target) {
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    // Free the render canvas
+    canvas.width = 0; canvas.height = 0;
     const pageName = totalPages === 1 ? file.name : `${file.name} – p${pageNum}`;
+    const id = _imgId();
+    const thumb = await generateThumb(dataUrl);
+    imgStore[id] = { src: dataUrl, originalSrc: dataUrl, thumb };
     images.push({
-      src: dataUrl, originalSrc: dataUrl,
+      _id: id,
+      src: dataUrl, originalSrc: dataUrl, thumb,
       name: pageName, size: file.size,
       rotation: 0, flipH: false, flipV: false, filters: {}
     });
@@ -897,9 +958,10 @@ function render() {
     card.dataset.i = i;
 
     const rotLabel = img.rotation ? `<div class="rotation-badge">${img.rotation}°</div>` : '';
+    const displaySrc = img.thumb || img.src;
     card.innerHTML = `
       <div class="img-thumb-wrap">
-        <img src="${img.src}" style="transform:rotate(${img.rotation}deg) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})">
+        <img src="${displaySrc}" style="transform:rotate(${img.rotation}deg) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})" loading="lazy">
         ${rotLabel}
         <div class="img-overlay">
           <button class="ov-btn" title="Edit" onclick="openEditorFor(${i})">✏️</button>
@@ -1090,7 +1152,14 @@ function updateSummary() {
 });
 
 function removeImage(i) { snapshot('Delete image'); images.splice(i,1); render(); }
-function duplicateImage(i) { snapshot('Duplicate'); images.splice(i+1,0,{...images[i]}); render(); }
+function duplicateImage(i) {
+  snapshot('Duplicate');
+  const orig = images[i];
+  const newId = _imgId();
+  imgStore[newId] = { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) };
+  images.splice(i+1, 0, { ...orig, _id: newId });
+  render();
+}
 function clearAll() { snapshot('Clear all'); images=[]; render(); fileInput.value=''; }
 function sortByName() { snapshot('Sort A-Z'); images.sort((a,b)=>a.name.localeCompare(b.name)); render(); }
 function reverseOrder() { snapshot('Reverse order'); images.reverse(); render(); }
@@ -1786,7 +1855,7 @@ function saveEdits() {
   if (editingIndex === null) return;
   snapshot('Edit image');
   const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
+  img.onload = async () => {
     const rad = (editorRotation * Math.PI) / 180;
     const bw = Math.abs(img.naturalWidth*Math.cos(rad))+Math.abs(img.naturalHeight*Math.sin(rad));
     const bh = Math.abs(img.naturalWidth*Math.sin(rad))+Math.abs(img.naturalHeight*Math.cos(rad));
@@ -1799,12 +1868,18 @@ function saveEdits() {
     ctx.filter = buildFilterString();
     ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
     const finalSrc = cvs.toDataURL('image/jpeg',.92);
+    // Free canvas
+    cvs.width = 0; cvs.height = 0;
+    const id = images[editingIndex]._id;
+    const thumb = await generateThumb(finalSrc);
+    imgStore[id] = { src: finalSrc, originalSrc: imgStore[id]?.originalSrc || finalSrc, thumb };
     images[editingIndex].src = finalSrc;
+    images[editingIndex].thumb = thumb;
     images[editingIndex].rotation = 0;
     images[editingIndex].flipH = false;
     images[editingIndex].flipV = false;
     images[editingIndex].filters = {};
-    images[editingIndex].originalSrc = images[editingIndex].originalSrc || finalSrc;
+    images[editingIndex].originalSrc = imgStore[id].originalSrc;
     closeEditor();
     render();
     renderPdfEditor();
@@ -1834,7 +1909,10 @@ async function renderImageToDataUrl(imgObj) {
       ctx.rotate(rad);
       ctx.scale(imgObj.flipH?-1:1,imgObj.flipV?-1:1);
       ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
-      res(cvs.toDataURL('image/jpeg',.92));
+      const result = cvs.toDataURL('image/jpeg',.85);
+      // Free canvas memory
+      cvs.width = 0; cvs.height = 0;
+      res(result);
     };
     img.onerror = () => res(imgObj.src);
   });
