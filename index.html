@@ -36,7 +36,6 @@ body.dark .modal-head{background:var(--dm-paper)}
 
 /* Fix 1: "Ready to export" section in dark mode — was invisible ink-on-ink */
 body.dark .convert-section{background:#1a1a2e;border:1.5px solid #2a2a4a}
-body.dark .convert-section>div[style]{color:var(--dm-ink) !important}
 .convert-heading{color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:1rem}
 body.dark .convert-heading{color:var(--dm-ink)}
 
@@ -213,10 +212,7 @@ body.dark .convert-section p{color:rgba(240,240,240,.6)}
 /* crop controls */
 .crop-hint{font-size:.8rem;color:var(--muted);margin-bottom:.7rem;background:var(--cream);padding:.5rem .8rem;border-radius:5px;border:1px solid var(--border)}
 .crop-coords{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.crop-preview-wrap{position:relative;display:inline-block;margin:0 auto;display:flex;justify-content:center}
-#cropCanvas{cursor:crosshair}
-.crop-box{position:absolute;border:2px solid var(--blue);pointer-events:none;background:transparent}
-.crop-box::after{content:'';position:absolute;inset:0;background:rgba(32,64,232,.05)}
+.crop-preview-wrap{position:relative;margin:0 auto;display:flex;justify-content:center}
 
 /* flip controls */
 .flip-row{display:flex;gap:8px;flex-wrap:wrap}
@@ -281,14 +277,30 @@ body.dark .pba:hover,body.dark .pba:active{background:#333;border-color:var(--dm
 .kbd{display:inline-flex;align-items:center;gap:3px}
 .kbd kbd{font-family:'DM Sans',sans-serif;font-size:.7rem;background:var(--white);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--ink)}
 
-/* ── FEATURES ── */
-.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--border)}
-.fc{padding:1.1rem;background:var(--card);border:1px solid var(--border);border-radius:8px}
-.fc-icon{font-size:1.3rem;margin-bottom:.5rem}
-.fc h4{font-family:'Syne',sans-serif;font-weight:700;font-size:.85rem;margin-bottom:.25rem}
-.fc p{font-size:.78rem;color:var(--muted);line-height:1.5}
+/* ── COMPACT MODE ──
+   Once a document is loaded the first-run furniture (big hero, full-size drop
+   zone) is dead weight — collapse it so the work is what fills the screen. */
+body.has-doc .hero{padding:1.1rem 1.6rem .4rem}
+body.has-doc .hero h1{font-size:1.15rem;margin-bottom:0;letter-spacing:-.02em}
+body.has-doc .hero h1 br{display:none}
+body.has-doc .hero h1 em::before{content:' '}
+body.has-doc .hero p{display:none}
+body.has-doc .drop-zone{padding:.75rem 1rem;margin-bottom:1rem;border-width:1.5px}
+body.has-doc .drop-zone .drop-icon{width:26px;height:26px;font-size:14px;margin:0 8px 0 0;border-radius:6px}
+body.has-doc .drop-zone h3{font-size:.82rem;margin-bottom:0}
+body.has-doc .drop-zone p,body.has-doc .drop-zone .browse-btn{display:none}
+body.has-doc .drop-zone .drop-inner{display:flex;align-items:center;justify-content:center;gap:0}
 
 footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-size:.75rem;color:var(--muted)}
+body.has-doc footer{display:none}
+
+/* dismissible shortcut hints */
+.kbd-hints{position:relative}
+.kbd-dismiss{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem;line-height:1;padding:0 2px}
+.kbd-dismiss:hover{color:var(--ink)}
+body.hints-off .kbd-hints{display:none}
+.hints-show{display:none}
+body.hints-off .hints-show{display:inline-flex}
 
 /* scrollbar */
 ::-webkit-scrollbar{width:6px;height:6px}
@@ -296,7 +308,7 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── TOAST ── */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--white);font-size:.82rem;padding:9px 20px;border-radius:6px;z-index:2000;opacity:0;transition:all .3s;white-space:nowrap;pointer-events:none}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--white);font-size:.82rem;padding:9px 20px;border-radius:6px;z-index:2000;opacity:0;transition:all .3s;pointer-events:none;max-width:calc(100vw - 32px);text-align:center}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 
 @media(max-width:580px){
@@ -334,6 +346,7 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
   <span class="kbd"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span>
   <span class="kbd"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</span>
   <span class="kbd">Hold & drag to reorder</span>
+  <button class="kbd-dismiss" title="Hide shortcuts" aria-label="Hide keyboard shortcuts" onclick="toggleHints(false)">✕</button>
 </div>
 
 <!-- Undo/Redo bar -->
@@ -366,8 +379,10 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
 
     <div class="drop-zone" id="dropZone">
       <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/avif" multiple>
-      <div class="drop-icon">🖼</div>
-      <h3>Drop images here</h3>
+      <div class="drop-inner">
+        <div class="drop-icon">🖼</div>
+        <h3>Drop images here</h3>
+      </div>
       <p>JPG · PNG · WebP · GIF · BMP · TIFF — loads in smart batches, no limit</p>
       <div class="browse-btn">Browse files</div>
     </div>
@@ -380,10 +395,19 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
         <button class="btn" onclick="document.getElementById('fileInput').click()">+ Add more</button>
         <button class="btn" onclick="sortByName()">Sort A–Z</button>
         <button class="btn" onclick="reverseOrder()">Reverse</button>
+        <button class="btn" onclick="rotateAll(90)" title="Rotate every image 90°">↻ Rotate all</button>
+        <button class="btn" id="selectAllBtn" onclick="toggleSelectAll()">Select all</button>
+        <button class="btn hints-show" onclick="toggleHints(true)" title="Show keyboard shortcuts">⌨ Shortcuts</button>
       </div>
-      <button class="btn btn-red" onclick="clearAll()">Clear all</button>
+      <div class="tl">
+        <span id="selInfo" style="font-size:.78rem;color:var(--muted)"></span>
+        <button class="btn btn-red" onclick="clearAll()">Clear all</button>
+      </div>
     </div>
 
+    <!-- Export settings live in ONE element that switchTab() re-mounts into whichever
+         view is active, so both tabs drive the same document with the same options. -->
+    <div id="settingsMountConvert">
     <div class="settings-bar" id="settingsBar">
       <div class="sg"><label>Page size</label>
         <select id="pageSize"><option value="a4">A4 (210×297mm)</option><option value="letter">Letter (8.5×11in)</option><option value="a3">A3 (297×420mm)</option><option value="a5">A5 (148×210mm)</option><option value="fit">Fit to image</option></select></div>
@@ -392,7 +416,10 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
       <div class="sg"><label>Image fit</label>
         <select id="imgFit"><option value="contain">Contain (no crop)</option><option value="fill">Fill page</option><option value="actual">Actual size</option></select></div>
       <div class="sg"><label>Margin (mm)</label><input type="number" id="margin" value="10" min="0" max="40"></div>
+      <div class="sg"><label>Quality</label>
+        <select id="quality"><option value="0.85" selected>Balanced</option><option value="0.95">High (larger file)</option><option value="0.72">Small (smaller file)</option></select></div>
       <div class="sg"><label>PDF filename</label><input type="text" id="filename" value="my-photos"></div>
+    </div>
     </div>
 
     <div class="img-grid" id="imgGrid"></div>
@@ -400,6 +427,7 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
     <div class="convert-section" id="convertSection">
       <div class="convert-heading">Ready to export</div>
       <p id="convertSummary">—</p>
+      <p id="sizeEstimate" style="font-size:.78rem;margin-top:-.4rem"></p>
       <button class="convert-btn" id="convertBtn" onclick="generatePDF()">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1v9M4 7l4 4 4-4M2 13h12" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Generate PDF
@@ -410,14 +438,6 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
       </div>
     </div>
 
-    <div class="features">
-      <div class="fc"><div class="fc-icon">🔒</div><h4>Private by design</h4><p>All image processing happens right in your browser — your files are never uploaded to any server.</p></div>
-      <div class="fc"><div class="fc-icon">📱</div><h4>Mobile friendly</h4><p>Hold &amp; drag to reorder on touch screens. Crop, rotate, and filter images directly on your phone.</p></div>
-      <div class="fc"><div class="fc-icon">↩</div><h4>Undo / Redo</h4><p>Every action is reversible. Use Ctrl+Z / Ctrl+Shift+Z on desktop, or the Undo bar above.</p></div>
-      <div class="fc"><div class="fc-icon">📐</div><h4>Flexible export</h4><p>Choose page size, orientation, margin, and fit mode. Works great for A4 documents and photos.</p></div>
-      <div class="fc"><div class="fc-icon">⚡</div><h4>Bulk uploads</h4><p>Upload as many images as you like — they load in smart batches so your browser stays fast.</p></div>
-      <div class="fc"><div class="fc-icon">✂️</div><h4>Per-image editing</h4><p>Tap the ✏️ icon on any image to crop, resize, rotate, flip, or apply filters before export.</p></div>
-    </div>
   </div>
 </div>
 
@@ -456,6 +476,9 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
     </div>
   </div>
 
+  <!-- #settingsBar is re-mounted here while the Edit view is active -->
+  <div class="wrap" id="settingsMountEdit" style="padding-top:0;padding-bottom:0"></div>
+
   <div class="pdf-editor-wrap" id="pdfEditorWrap" style="display:none">
     <div class="pdf-pages-panel">
       <h3>
@@ -488,11 +511,11 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
 </div>
 
 <!-- ════════════════════ EDITOR MODAL ════════════════════ -->
-<div class="modal-bg" id="editorModal">
+<div class="modal-bg" id="editorModal" role="dialog" aria-modal="true" aria-labelledby="editorModalTitle">
   <div class="modal">
     <div class="modal-head">
       <h2 id="editorModalTitle">Edit image</h2>
-      <button class="modal-close" onclick="closeEditor()">✕</button>
+      <button class="modal-close" id="editorCloseBtn" aria-label="Close editor" onclick="closeEditor()">✕</button>
     </div>
     <div class="modal-body">
       <div class="editor-tabs">
@@ -580,6 +603,13 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
       <!-- FILTERS -->
       <div class="ctrl-group et-panel" id="panel-filters" style="display:none">
         <h4>Filters &amp; Adjustments</h4>
+        <div class="ctrl-row" style="margin-bottom:.9rem">
+          <span style="font-size:.78rem;color:var(--muted);margin-right:2px">Presets:</span>
+          <button class="btn" onclick="applyFilterPreset('document')" title="High contrast B&amp;W for scanned text">📄 Document</button>
+          <button class="btn" onclick="applyFilterPreset('grayscale')">◐ B&amp;W</button>
+          <button class="btn" onclick="applyFilterPreset('vivid')">🌈 Vivid</button>
+          <button class="btn" onclick="applyFilterPreset('soften')">☁ Soften</button>
+        </div>
         <div class="filter-grid">
           <div class="filter-item">
             <label>Brightness <span class="filter-val" id="fv-brightness">100%</span></label>
@@ -620,8 +650,10 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
         </div>
       </div>
 
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);flex-wrap:wrap">
         <button class="btn btn-red" onclick="revertAll()">Revert all changes</button>
+        <button class="btn btn-blue" id="applyAllBtn" onclick="saveEdits(true)"
+                title="Apply the current rotation, flip and filters to every image">⇉ Apply to all</button>
         <button class="btn btn-primary" onclick="saveEdits()">Save changes</button>
       </div>
     </div>
@@ -629,9 +661,10 @@ footer{text-align:center;padding:1.2rem;border-top:1px solid var(--border);font-
 </div>
 
 <!-- Lightbox -->
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-  <img id="lightboxImg" src="" alt="Page preview">
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Full size preview" onclick="closeLightbox()">
+  <button class="lightbox-close" id="lightboxCloseBtn" aria-label="Close preview" onclick="closeLightbox()">✕</button>
+  <!-- Clicking the image itself used to dismiss the lightbox. -->
+  <img id="lightboxImg" src="" alt="Full size page preview" onclick="event.stopPropagation()">
   <div class="lightbox-caption" id="lightboxCaption"></div>
 </div>
 
@@ -661,6 +694,92 @@ const MAX_HISTORY = 20; // cap to avoid OOM on mobile
 
 function _imgId() { return 'img_' + (++_imgIdCounter); }
 
+// ── BLOB-BACKED PIXEL STORAGE ──────────────────────────────────────────────
+// Pixels are held as Blobs referenced by object URLs, not base64 data URLs.
+// Base64 is ~33% larger than the bytes it encodes and lives as an immovable JS
+// string; a Blob stays in the browser's own storage and can be paged out. Every
+// consumer just sees a URL string, so `img.src = entry.src` works unchanged.
+//
+// Object URLs must be revoked or they leak for the page's lifetime, but the same
+// URL can be shared (duplicating a page copies the store entry), so they're
+// refcounted rather than revoked on first release.
+const _urlRefs = new Map();
+function isBlobUrl(u) { return typeof u === 'string' && u.startsWith('blob:'); }
+function retainUrl(u) {
+  if (isBlobUrl(u)) _urlRefs.set(u, (_urlRefs.get(u) || 0) + 1);
+  return u;
+}
+function releaseUrl(u) {
+  if (!isBlobUrl(u)) return;
+  const n = (_urlRefs.get(u) || 0) - 1;
+  if (n > 0) { _urlRefs.set(u, n); return; }
+  _urlRefs.delete(u);
+  forgetImage(u);
+  URL.revokeObjectURL(u);
+}
+const STORE_URL_KEYS = ['src', 'originalSrc', 'thumb'];
+// Always write to imgStore through this so the refcounts stay honest.
+function putStore(id, entry) {
+  const prev = imgStore[id];
+  STORE_URL_KEYS.forEach(k => retainUrl(entry[k]));
+  imgStore[id] = entry;
+  if (prev) STORE_URL_KEYS.forEach(k => releaseUrl(prev[k]));
+  return entry;
+}
+function dropStore(id) {
+  const e = imgStore[id];
+  if (!e) return;
+  delete imgStore[id];
+  STORE_URL_KEYS.forEach(k => releaseUrl(e[k]));
+}
+
+// Encode a canvas straight to a Blob URL, skipping the base64 round trip.
+function canvasToUrl(cvs, quality) {
+  return new Promise(resolve => {
+    cvs.toBlob(blob => {
+      if (!blob) { resolve({ url: cvs.toDataURL('image/jpeg', quality), bytes: 0 }); return; }
+      resolve({ url: URL.createObjectURL(blob), bytes: blob.size });
+    }, 'image/jpeg', quality);
+  });
+}
+
+// Decoding a multi-megabyte data URL costs tens of ms. The editor re-decodes the
+// same source on every filter tick / resize keystroke, so keep the last few
+// decoded bitmaps around. Small cap: these hold full-resolution pixel data.
+const _imgCache = new Map();
+function loadImage(src) {
+  const hit = _imgCache.get(src);
+  if (hit) return Promise.resolve(hit);
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      if (_imgCache.size >= 3) _imgCache.clear();
+      _imgCache.set(src, im);
+      resolve(im);
+    };
+    im.onerror = () => reject(new Error('Image failed to decode'));
+    im.src = src;
+  });
+}
+function forgetImage(src) { _imgCache.delete(src); }
+
+// JPEG quality for the final export, chosen by the user.
+function exportQuality() {
+  const v = parseFloat((document.getElementById('quality') || {}).value);
+  return isFinite(v) ? v : 0.85;
+}
+// Intermediate editor steps (crop/resize/filters) re-encode each time, so keep
+// them near-lossless — otherwise repeated edits visibly compound JPEG artifacts.
+function editorQuality() { return Math.max(0.94, exportQuality()); }
+
+// Filenames are user data interpolated into innerHTML — a quote or angle
+// bracket would otherwise break the card markup (or worse).
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function _lightImages() {
   // Snapshot only the non-pixel metadata
   return images.map(img => ({
@@ -678,17 +797,37 @@ function _restoreImages(light) {
   });
 }
 
+// Pixel data outlives the images that referenced it: entries stay in imgStore
+// after a delete (so undo can restore them) but were never reclaimed once the
+// snapshot holding the last reference fell off the end of the history.
+function pruneImgStore() {
+  const live = new Set(images.map(i => i._id));
+  history.forEach(h => {
+    try { JSON.parse(h).forEach(m => live.add(m._id)); } catch(e) {}
+  });
+  let freed = 0;
+  Object.keys(imgStore).forEach(id => {
+    if (!live.has(id)) { dropStore(id); freed++; } // also revokes the object URLs
+  });
+  return freed;
+}
+
 function snapshot(label) {
+  // Truncating the redo branch and trimming the tail both orphan pixel data.
+  const truncated = history.length > historyIndex + 1;
   history = history.slice(0, historyIndex + 1);
   undoLabels = undoLabels.slice(0, historyIndex + 1);
   history.push(JSON.stringify(_lightImages()));
   undoLabels.push(label || 'Action');
   // Cap history size — drop oldest entries
+  let trimmed = false;
   if (history.length > MAX_HISTORY) {
     history.shift();
     undoLabels.shift();
+    trimmed = true;
   }
   historyIndex = history.length - 1;
+  if (truncated || trimmed) pruneImgStore();
   updateUndoUI();
 }
 
@@ -715,7 +854,7 @@ function updateUndoUI() {
   const undoBtn = document.getElementById('undoBtn');
   const redoBtn = document.getElementById('redoBtn');
   const lbl = document.getElementById('undoLabel');
-  bar.classList.toggle('on', images.length > 0 || history.length > 0);
+  bar.classList.toggle('on', images.length > 0 || historyIndex > 0);
   undoBtn.disabled = historyIndex <= 0;
   redoBtn.disabled = historyIndex >= history.length - 1;
   if (historyIndex > 0) lbl.textContent = undoLabels[historyIndex] || '';
@@ -723,10 +862,17 @@ function updateUndoUI() {
 }
 
 function refreshAll() {
+  // Undo/redo can shrink the list under a stale selection — clamp both first.
+  if (!images.length) {
+    selectedPdfPage = null;
+    selectedConvertCard = null;
+  } else {
+    if (Number.isInteger(selectedPdfPage)) selectedPdfPage = Math.min(selectedPdfPage, images.length - 1);
+    if (Number.isInteger(selectedConvertCard)) selectedConvertCard = Math.min(selectedConvertCard, images.length - 1);
+  }
   if (currentTab === 'convert') render();
   else renderPdfEditor();
-  selectedPdfPage = Math.min(selectedPdfPage || 0, images.length - 1);
-  if (images.length && currentTab === 'edit') selectPdfPage(selectedPdfPage);
+  if (images.length && currentTab === 'edit' && Number.isInteger(selectedPdfPage)) selectPdfPage(selectedPdfPage);
 }
 
 // ── DARK MODE ──
@@ -743,6 +889,67 @@ function toggleDark() {
     }
   } catch(e) {}
 })();
+
+// Strip characters Windows/macOS reject in filenames, plus path separators.
+function sanitizeFilename(name) {
+  const cleaned = String(name || '')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 120);
+  return cleaned || 'my-photos';
+}
+
+// Guard against losing an arranged document to an accidental tab close.
+window.addEventListener('beforeunload', e => {
+  if (images.length) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ── PERSISTED SETTINGS ──
+// Personal use means the same export settings nearly every time; re-picking
+// them each session is pure friction. Dark mode already persisted — this
+// extends the same idea to the settings bar.
+const SETTING_IDS = ['pageSize','orientation','imgFit','margin','quality','filename'];
+function saveSettings() {
+  try {
+    const o = {};
+    SETTING_IDS.forEach(id => { const el = document.getElementById(id); if (el) o[id] = el.value; });
+    localStorage.setItem('photopdf-settings', JSON.stringify(o));
+  } catch(e) {}
+}
+function restoreSettings() {
+  try {
+    const o = JSON.parse(localStorage.getItem('photopdf-settings') || '{}');
+    SETTING_IDS.forEach(id => {
+      // Filename is derived per-document instead of restored verbatim.
+      if (id === 'filename' || o[id] === undefined) return;
+      const el = document.getElementById(id);
+      if (el) el.value = o[id];
+    });
+  } catch(e) {}
+}
+
+// ── KEYBOARD HINT BAR ──
+function toggleHints(show) {
+  document.body.classList.toggle('hints-off', !show);
+  try { localStorage.setItem('photopdf-hints', show ? '1' : '0'); } catch(e) {}
+}
+
+// Collapse the first-run furniture once there's a document to work on.
+function updateChrome() {
+  document.body.classList.toggle('has-doc', images.length > 0);
+}
+
+// Derive a filename from the content instead of leaving "my-photos" forever.
+function suggestFilename() {
+  const el = document.getElementById('filename');
+  if (!el || el.dataset.touched === '1') return; // never override manual input
+  if (!images.length) { el.value = 'my-photos'; return; }
+  const first = images[0].name.replace(/\.[^.]+$/, '').replace(/\s*[–-]\s*p\d+$/, '');
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  el.value = sanitizeFilename(images.length === 1 ? first : `${first}-${stamp}`);
+}
 
 // ── TOAST ──
 let toastTimer;
@@ -773,6 +980,11 @@ function switchTab(tab) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
   document.getElementById('page-' + tab).classList.add('active');
+  // Both views edit one document — carry the single export-settings bar across.
+  const sb = document.getElementById('settingsBar');
+  const mount = document.getElementById(tab === 'convert' ? 'settingsMountConvert' : 'settingsMountEdit');
+  if (sb && mount && sb.parentElement !== mount) mount.appendChild(sb);
+  if (sb) sb.classList.toggle('on', images.length > 0);
   updateUndoUI();
 }
 
@@ -784,8 +996,11 @@ const dropZone = document.getElementById('dropZone');
 const pdfFileInput = document.getElementById('pdfFileInput');
 const pdfDropZone = document.getElementById('pdfDropZone');
 
-fileInput.addEventListener('change', e => handleFiles(e.target.files, 'convert'));
-pdfFileInput.addEventListener('change', e => handleFiles(e.target.files, 'edit'));
+// Reset .value after handling: without it, picking the same file twice in a row
+// fires no change event and appears to do nothing. handleFiles() copies the
+// FileList synchronously, so clearing it here is safe.
+fileInput.addEventListener('change', e => { handleFiles(e.target.files, 'convert'); e.target.value = ''; });
+pdfFileInput.addEventListener('change', e => { handleFiles(e.target.files, 'edit'); e.target.value = ''; });
 
 [dropZone, pdfDropZone].forEach(dz => {
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
@@ -797,30 +1012,46 @@ pdfFileInput.addEventListener('change', e => handleFiles(e.target.files, 'edit')
   });
 });
 
+// Accept a drop anywhere on the window, not just on the drop zone — once the
+// zone is collapsed it's a small target, and aiming at it is busywork.
+window.addEventListener('dragover', e => {
+  if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault();
+});
+window.addEventListener('drop', e => {
+  if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+  if (e.target.closest('.drop-zone')) return; // the zone's own handler has it
+  e.preventDefault();
+  handleFiles(e.dataTransfer.files, currentTab === 'edit' ? 'edit' : 'convert');
+});
+
 if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
-// Generate a small thumbnail dataURL for display (max 320px wide/tall)
-function generateThumb(fullSrc) {
-  return new Promise(res => {
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 320;
-      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.round(img.naturalWidth * scale);
-      const h = Math.round(img.naturalHeight * scale);
-      const cvs = document.createElement('canvas');
-      cvs.width = w; cvs.height = h;
-      cvs.getContext('2d').drawImage(img, 0, 0, w, h);
-      const thumb = cvs.toDataURL('image/jpeg', 0.7);
-      // Free canvas
-      cvs.width = 0; cvs.height = 0;
-      res(thumb);
-    };
-    img.onerror = () => res(fullSrc);
-    img.src = fullSrc;
-  });
+// Generate a small thumbnail (max 320px) as a Blob URL. Grid and page-list
+// rendering use this rather than the full image, so it stays cheap at scale.
+// `preloaded` lets callers that already decoded the image skip a second decode.
+async function generateThumb(fullSrc, preloaded) {
+  let img = preloaded;
+  // Returning fullSrc unchanged is safe: putStore refcounts per key, so a
+  // thumb that aliases src is retained and released the same number of times.
+  if (!img) {
+    let ok = true;
+    try { img = await loadImage(fullSrc); } catch (e) { ok = false; }
+    if (!ok) return fullSrc;
+  }
+  const MAX = 320;
+  const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cvs = document.createElement('canvas');
+  cvs.width = w; cvs.height = h;
+  const ctx = cvs.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); // JPEG has no alpha
+  ctx.drawImage(img, 0, 0, w, h);
+  const { url } = await canvasToUrl(cvs, 0.7);
+  cvs.width = 0; cvs.height = 0; // free backing memory
+  return url;
 }
 
 function handleFiles(files, target) {
@@ -843,41 +1074,59 @@ function handleFiles(files, target) {
     if (!batch.length) return;
     batchIdx += BATCH;
 
-    let loaded = 0;
-    batch.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = async e => {
-        const fullSrc = e.target.result;
+    // A File already IS a Blob, so the bytes on disk can be referenced directly.
+    // The old path read each file into a base64 data URL first, which cost a full
+    // copy at ~1.33x size before anything was even displayed.
+    // createObjectURL is synchronous, so per-file order is inherent here; only
+    // thumbnailing awaits, and Promise.all preserves index order regardless.
+    Promise.all(batch.map(async file => {
+      const url = URL.createObjectURL(file);
+      try {
+        const decoded = await loadImage(url); // rejects unreadable/corrupt files
+        const thumb = await generateThumb(url, decoded);
+        return { url, thumb, file };
+      } catch (err) {
+        URL.revokeObjectURL(url);          // nothing took ownership; free it now
+        return null;
+      }
+    })).then(results => {
+      const failed = results.filter(r => !r).length;
+      results.forEach(r => {
+        if (!r) return;
         const id = _imgId();
-        const thumb = await generateThumb(fullSrc);
-        imgStore[id] = { src: fullSrc, originalSrc: fullSrc, thumb };
+        putStore(id, { src: r.url, originalSrc: r.url, thumb: r.thumb });
         images.push({
           _id: id,
-          src: fullSrc, originalSrc: fullSrc, thumb,
-          name: file.name, size: file.size,
+          src: r.url, originalSrc: r.url, thumb: r.thumb,
+          name: r.file.name, size: r.file.size,
           rotation: 0, flipH: false, flipV: false, filters: {}
         });
-        loaded++;
-        if (loaded === batch.length) {
-          snapshot('Add image' + (batch.length > 1 ? 's' : ''));
-          if (target === 'convert') render();
-          else renderPdfEditor();
-          // Yield to browser paint then load next batch
-          if (batchIdx < imgs.length) setTimeout(loadNextBatch, 60);
-        }
-      };
-      reader.readAsDataURL(file);
+      });
+      if (failed) showToast(`⚠️ Skipped ${failed} unreadable file${failed > 1 ? 's' : ''}`);
+      if (results.some(Boolean)) {
+        snapshot('Add image' + (batch.length > 1 ? 's' : ''));
+        if (target === 'convert') render();
+        else renderPdfEditor();
+      }
+      // Yield to browser paint then load next batch
+      if (batchIdx < imgs.length) setTimeout(loadNextBatch, 60);
     });
   }
 
   if (imgs.length > 5) showToast(`Loading ${imgs.length} images in batches…`);
   loadNextBatch();
-  if (target === 'edit') pdfs.forEach(file => loadPdfFile(file, target));
+  if (target === 'edit' && pdfs.length) {
+    // Sequential: running these in parallel interleaved pages from different
+    // PDFs and made them fight over the same progress indicator.
+    (async () => { for (const file of pdfs) await loadPdfFile(file, target); })();
+  }
 }
 
 function handleMergeFiles(files) {
   handleFiles(files, 'edit');
   showToast('Merging pages…');
+  const el = document.getElementById('mergePdfInput');
+  if (el) el.value = ''; // allow re-picking the same file
 }
 
 function showPdfLoading(tab, show, label, sub, pct) {
@@ -900,18 +1149,35 @@ async function loadPdfFile(file, target) {
 
   showPdfLoading(target, true, `Loading "${file.name}"…`, 'Reading file…', 0);
 
+  // If this is the first thing loaded, default to page-size "Fit to image" so an
+  // edited PDF keeps its original page dimensions instead of being forced to A4.
+  if (!images.length) {
+    document.getElementById('pageSize').value = 'fit';
+    document.getElementById('margin').value = 0;
+    updateSummary();
+  }
+
   let pdfDoc;
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    // Try loading — catch password-protected
-    pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise.catch(async (err) => {
-      if (err && err.name === 'PasswordException') {
-        const pw = prompt(`"${file.name}" is password-protected. Enter the password:`);
-        if (pw === null) { showPdfLoading(target, false); return null; }
-        return pdfjsLib.getDocument({ data: arrayBuffer, password: pw }).promise;
-      }
-      throw err;
-    });
+    // pdf.js TRANSFERS the ArrayBuffer to its worker, which detaches it in this
+    // thread — so every attempt needs its own freshly-read copy of the bytes.
+    // Reusing one buffer meant password-protected PDFs could never open.
+    pdfDoc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise
+      .catch(async (err) => {
+        if (!err || err.name !== 'PasswordException') throw err;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const pw = prompt(attempt === 0
+            ? `"${file.name}" is password-protected. Enter the password:`
+            : `Incorrect password — ${3 - attempt} attempt(s) left:`);
+          if (pw === null) return null; // user cancelled
+          try {
+            return await pdfjsLib.getDocument({ data: await file.arrayBuffer(), password: pw }).promise;
+          } catch (e) {
+            if (!e || e.name !== 'PasswordException') throw e;
+          }
+        }
+        throw new Error('Incorrect password.');
+      });
     if (!pdfDoc) { showPdfLoading(target, false); return; }
   } catch(err) {
     showPdfLoading(target, false);
@@ -929,19 +1195,26 @@ async function loadPdfFile(file, target) {
     await new Promise(r => setTimeout(r, 0)); // yield to paint
 
     const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2.0 });
+    // Cap the raster scale so a large-format page (posters, plans) can't blow up
+    // into a canvas the browser refuses to allocate.
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(2.0, 2400 / Math.max(base.width, base.height)) || 2.0;
+    const viewport = page.getViewport({ scale: Math.max(1, scale) });
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d');
+    // PDF pages are transparent by default; without this the JPEG comes out black.
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport }).promise;
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    const { url: dataUrl } = await canvasToUrl(canvas, 0.88);
     // Free the render canvas
     canvas.width = 0; canvas.height = 0;
+    page.cleanup();
     const pageName = totalPages === 1 ? file.name : `${file.name} – p${pageNum}`;
     const id = _imgId();
     const thumb = await generateThumb(dataUrl);
-    imgStore[id] = { src: dataUrl, originalSrc: dataUrl, thumb };
+    putStore(id, { src: dataUrl, originalSrc: dataUrl, thumb });
     images.push({
       _id: id,
       src: dataUrl, originalSrc: dataUrl, thumb,
@@ -949,6 +1222,9 @@ async function loadPdfFile(file, target) {
       rotation: 0, flipH: false, flipV: false, filters: {}
     });
   }
+
+  // Release the worker's copy of the document — otherwise it lives until reload.
+  try { await pdfDoc.destroy(); } catch(e) {}
 
   showPdfLoading(target, false);
   snapshot(`Load PDF "${file.name}"`);
@@ -976,28 +1252,42 @@ function render() {
 
     const rotLabel = img.rotation ? `<div class="rotation-badge">${img.rotation}°</div>` : '';
     const displaySrc = img.thumb || img.src;
+    const label = esc(img.name);
+    // The thumb box is 3:4, so a 90°/270° turn leaves the image no longer
+    // covering it. Scale by the box's aspect ratio to keep it filled.
+    const rot = ((img.rotation % 360) + 360) % 360;
+    const coverScale = (rot === 90 || rot === 270) ? (4/3) : 1;
     card.innerHTML = `
       <div class="img-thumb-wrap">
-        <img src="${displaySrc}" style="transform:rotate(${img.rotation}deg) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})" loading="lazy">
+        <img src="${displaySrc}" alt="${label}" style="transform:rotate(${img.rotation}deg) scale(${coverScale}) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})">
         ${rotLabel}
         <div class="img-overlay">
-          <button class="ov-btn" title="Edit" onclick="openEditorFor(${i})">✏️</button>
-          <button class="ov-btn" title="Rotate 90°" onclick="quickRotateCard(${i})">↻</button>
-          <button class="ov-btn" title="Duplicate" onclick="duplicateImage(${i})">⧉</button>
+          <button class="ov-btn" title="View full size" aria-label="View ${label} full size" onclick="openLightbox(${i})">🔍</button>
+          <button class="ov-btn" title="Edit" aria-label="Edit ${label}" onclick="openEditorFor(${i})">✏️</button>
+          <button class="ov-btn" title="Rotate 90°" aria-label="Rotate ${label} 90 degrees" onclick="quickRotateCard(${i})">↻</button>
+          <button class="ov-btn" title="Duplicate" aria-label="Duplicate ${label}" onclick="duplicateImage(${i})">⧉</button>
         </div>
       </div>
       <div class="img-footer">
         <span class="img-num">#${i+1}</span>
-        <button class="img-del" onclick="removeImage(${i})">✕</button>
+        <button class="img-del" title="Remove" aria-label="Remove ${label}" onclick="removeImage(${i})">✕</button>
       </div>
-      <div class="img-name" title="${img.name}">${img.name}</div>`;
+      <div class="img-name" title="${esc(img.name)}">${esc(img.name)}</div>`;
 
-    // Click to select (for keyboard shortcuts)
+    // Click to select. Ctrl/Cmd toggles one, Shift extends a range — so a batch
+    // of scans can be picked without clicking each card's controls.
     card.addEventListener('click', (e) => {
       if (e.target.closest('.ov-btn') || e.target.closest('.img-del')) return;
+      if (e.ctrlKey || e.metaKey) {
+        selectedSet.has(i) ? selectedSet.delete(i) : selectedSet.add(i);
+      } else if (e.shiftKey && Number.isInteger(selectedConvertCard)) {
+        const [lo,hi] = [selectedConvertCard, i].sort((a,b)=>a-b);
+        for (let k=lo;k<=hi;k++) selectedSet.add(k);
+      } else {
+        selectedSet.clear();
+      }
       selectedConvertCard = i;
-      document.querySelectorAll('.img-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
+      updateSelectionUI();
     });
 
     // Hold-to-drag (mousedown hold 200ms) — mouse
@@ -1037,6 +1327,9 @@ function render() {
     // Standard drag-drop fallback
     card.draggable = true;
     card.addEventListener('dragstart', (e) => {
+      // Native HTML5 drag beat the 200ms hold timer; without cancelling it the
+      // hold would fire mid-drag and spawn a second ghost on top.
+      clearTimeout(holdTimer);
       if (holdActive) { e.preventDefault(); return; }
       dragSrcIdx = i; card.classList.add('dragging');
     });
@@ -1046,9 +1339,9 @@ function render() {
     card.addEventListener('drop', e => {
       e.preventDefault(); card.classList.remove('drag-over');
       if (dragSrcIdx !== null && dragSrcIdx !== i) {
-        snapshot('Reorder');
         const m = images.splice(dragSrcIdx, 1)[0];
         images.splice(i, 0, m);
+        snapshot('Reorder');
         render();
       }
     });
@@ -1061,9 +1354,49 @@ function render() {
   document.getElementById('settingsBar').classList.toggle('on', has);
   document.getElementById('convertSection').classList.toggle('on', has);
   document.getElementById('countBadge').textContent = images.length;
+  updateChrome();
+  suggestFilename();
+  updateSelectionUI();
   updateSummary();
   document.getElementById('successMsg').classList.remove('on');
   updateUndoUI();
+}
+
+// ── MULTI-SELECT ──
+// Rotating a batch of sideways scans one card at a time was the single most
+// repetitive thing in the app; selection makes it one action.
+let selectedSet = new Set();
+
+function updateSelectionUI() {
+  const n = selectedSet.size;
+  const info = document.getElementById('selInfo');
+  const btn = document.getElementById('selectAllBtn');
+  if (info) info.textContent = n ? `${n} selected` : '';
+  if (btn) btn.textContent = (n && n === images.length) ? 'Select none' : 'Select all';
+  document.querySelectorAll('.img-card').forEach(c => {
+    c.classList.toggle('selected', selectedSet.has(+c.dataset.i) || selectedConvertCard === +c.dataset.i);
+  });
+}
+
+function toggleSelectAll() {
+  if (selectedSet.size === images.length) selectedSet.clear();
+  else selectedSet = new Set(images.map((_, i) => i));
+  updateSelectionUI();
+}
+
+// Indices the next bulk action applies to: the explicit selection, or everything.
+function targetIndices() {
+  return selectedSet.size ? [...selectedSet].filter(i => images[i]).sort((a,b)=>a-b)
+                          : images.map((_, i) => i);
+}
+
+function rotateAll(deg) {
+  const idx = targetIndices();
+  if (!idx.length) return;
+  idx.forEach(i => { images[i].rotation = ((images[i].rotation||0) + deg + 360) % 360; });
+  snapshot(selectedSet.size ? 'Rotate selected' : 'Rotate all');
+  render(); renderPdfEditor();
+  showToast(`↻ Rotated ${idx.length} image${idx.length>1?'s':''}`);
 }
 
 // ── HOLD-TO-DRAG logic (convert grid) ──
@@ -1109,9 +1442,9 @@ function onHoldEnd(e) {
   if (targetCard) {
     const targetIdx = parseInt(targetCard.dataset.i);
     if (targetIdx !== dragSrcIdx) {
-      snapshot('Reorder');
       const m = images.splice(dragSrcIdx, 1)[0];
       images.splice(targetIdx, 0, m);
+      snapshot('Reorder');
     }
   }
 
@@ -1148,9 +1481,9 @@ function onTouchHoldEnd(e) {
     if (targetCard) {
       const targetIdx = parseInt(targetCard.dataset.i);
       if (targetIdx !== dragSrcIdx) {
-        snapshot('Reorder');
         const m = images.splice(dragSrcIdx, 1)[0];
         images.splice(targetIdx, 0, m);
+        snapshot('Reorder');
       }
     }
   }
@@ -1163,24 +1496,78 @@ function updateSummary() {
   const or = document.getElementById('orientation').value;
   document.getElementById('convertSummary').textContent =
     `${images.length} image${images.length>1?'s':''} · ${ps.toUpperCase()} · ${or}`;
+  estimateExportSize();
 }
-['pageSize','orientation','imgFit','margin'].forEach(id => {
-  document.getElementById(id)?.addEventListener('change', updateSummary);
+
+// Real byte counts are available now that pixels are Blobs, so the size shown
+// before exporting is measured rather than guessed. Scaled by the quality
+// setting, since that's the main thing that moves it.
+let _sizeEstToken = 0;
+async function estimateExportSize() {
+  const el = document.getElementById('sizeEstimate');
+  if (!el) return;
+  const token = ++_sizeEstToken;
+  if (!images.length) { el.textContent = ''; return; }
+  let total = 0, measured = 0;
+  for (const im of images) {
+    if (!isBlobUrl(im.src)) continue;
+    try {
+      const r = await fetch(im.src);
+      const b = await r.blob();
+      if (token !== _sizeEstToken) return; // superseded by a newer estimate
+      total += b.size; measured++;
+    } catch(e) {}
+  }
+  if (token !== _sizeEstToken || !measured) return;
+  // Sources are stored at ~0.85–0.94; rescale toward the chosen export quality.
+  const scaled = total * (exportQuality() / 0.9);
+  const avg = scaled / measured;
+  const projected = avg * images.length;
+  const mb = projected / 1048576;
+  el.textContent = `≈ ${mb >= 1 ? mb.toFixed(1)+' MB' : Math.max(1,Math.round(projected/1024))+' KB'} estimated`;
+}
+['pageSize','orientation','imgFit','margin','quality'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', () => { updateSummary(); saveSettings(); });
+});
+// Mark the filename as manually set so suggestFilename() stops overriding it.
+document.getElementById('filename')?.addEventListener('input', e => {
+  e.target.dataset.touched = e.target.value.trim() ? '1' : '';
 });
 
-function removeImage(i) { snapshot('Delete image'); images.splice(i,1); render(); }
-function duplicateImage(i) {
-  snapshot('Duplicate');
-  const orig = images[i];
-  const newId = _imgId();
-  imgStore[newId] = { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) };
-  images.splice(i+1, 0, { ...orig, _id: newId });
+function removeImage(i) {
+  if (!images[i]) return;
+  selectedSet.clear(); // indices shift; a stale selection would target wrong cards
+  images.splice(i,1);
+  // Keep the selection pointing at whatever slid into place (or clear it).
+  if (Number.isInteger(selectedConvertCard)) {
+    if (selectedConvertCard > i) selectedConvertCard--;
+    else if (selectedConvertCard === i) selectedConvertCard = images.length ? Math.min(i, images.length-1) : null;
+  }
+  snapshot('Delete image');
   render();
 }
-function clearAll() { snapshot('Clear all'); images=[]; render(); fileInput.value=''; }
-function sortByName() { snapshot('Sort A-Z'); images.sort((a,b)=>a.name.localeCompare(b.name)); render(); }
-function reverseOrder() { snapshot('Reverse order'); images.reverse(); render(); }
-function quickRotateCard(i) { snapshot('Rotate'); images[i].rotation=(images[i].rotation+90)%360; render(); }
+function duplicateImage(i) {
+  const orig = images[i];
+  if (!orig) return;
+  selectedSet.clear(); // indices shift below the insert point
+  const newId = _imgId();
+  // Shares the source's object URLs — putStore bumps their refcounts so neither
+  // copy can revoke pixels the other still needs.
+  putStore(newId, { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) });
+  images.splice(i+1, 0, { ...orig, _id: newId });
+  snapshot('Duplicate');
+  render();
+}
+function clearAll() {
+  if (images.length && !confirm(`Remove all ${images.length} image${images.length>1?'s':''}?`)) return;
+  images=[]; selectedConvertCard=null; selectedPdfPage=null; selectedSet.clear();
+  snapshot('Clear all');   // prune runs here once the old entries fall out of history
+  render(); renderPdfEditor();
+  fileInput.value='';
+}
+function sortByName() { selectedSet.clear(); images.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'})); snapshot('Sort A-Z'); render(); }
+function reverseOrder() { selectedSet.clear(); images.reverse(); snapshot('Reverse order'); render(); }
+function quickRotateCard(i) { if (!images[i]) return; images[i].rotation=(images[i].rotation+90)%360; snapshot('Rotate'); render(); }
 
 // ══════════════════════════════════════
 //  PDF EDITOR PAGE
@@ -1199,15 +1586,19 @@ function renderPdfEditor() {
   const mergeSection = document.getElementById('mergePdfSection');
   const uploadDrop = document.getElementById('pdfDropZone');
 
+  updateChrome();
+  const sBar = document.getElementById('settingsBar');
   if (!images.length) {
     wrap.style.display='none';
     mergeSection.style.display = 'none';
     uploadDrop.style.display = '';
+    if (sBar) sBar.classList.remove('on');
     return;
   }
   wrap.style.display='grid';
   mergeSection.style.display = 'flex';
   uploadDrop.style.display = 'none';
+  if (sBar && currentTab === 'edit') sBar.classList.add('on');
 
   document.getElementById('pdfPageCount').textContent = images.length;
   list.innerHTML = '';
@@ -1236,14 +1627,14 @@ function renderPdfEditor() {
       </div>
       <div class="pdf-page-info">
         <strong>Page ${i+1}</strong>
-        <span title="${img.name}">${img.name.length > 22 ? img.name.substring(0,20)+'…' : img.name}</span>
+        <span title="${esc(img.name)}">${esc(img.name.length > 22 ? img.name.substring(0,20)+'…' : img.name)}</span>
       </div>
       <div class="pdf-page-actions">
-        <button class="pba" title="Edit" onclick="event.stopPropagation();openEditorFor(${i})">✏</button>
-        <button class="pba" title="Move up" onclick="event.stopPropagation();movePage(${i},-1)">↑</button>
-        <button class="pba" title="Move down" onclick="event.stopPropagation();movePage(${i},1)">↓</button>
-        <button class="pba" title="Duplicate" onclick="event.stopPropagation();duplicatePage(${i})">⧉</button>
-        <button class="pba del" title="Delete" onclick="event.stopPropagation();deletePage(${i})">🗑</button>
+        <button class="pba" title="Edit" aria-label="Edit page ${i+1}" onclick="event.stopPropagation();openEditorFor(${i})">✏</button>
+        <button class="pba" title="Move up" aria-label="Move page ${i+1} up" onclick="event.stopPropagation();movePage(${i},-1)">↑</button>
+        <button class="pba" title="Move down" aria-label="Move page ${i+1} down" onclick="event.stopPropagation();movePage(${i},1)">↓</button>
+        <button class="pba" title="Duplicate" aria-label="Duplicate page ${i+1}" onclick="event.stopPropagation();duplicatePage(${i})">⧉</button>
+        <button class="pba del" title="Delete" aria-label="Delete page ${i+1}" onclick="event.stopPropagation();deletePage(${i})">🗑</button>
       </div>`;
 
     // Click to select
@@ -1304,16 +1695,7 @@ function renderPdfEditor() {
 
 // ── Shared: find which drop slot the pointer is at ──
 function getPdfDropIndex(clientY) {
-  const lines = document.querySelectorAll('.drop-line-indicator');
-  let best = null, bestDist = Infinity;
-  lines.forEach(line => {
-    const rect = line.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2 + window.scrollY;
-    const dist = Math.abs(clientY + window.scrollY - midY);
-    // use item centers as heuristic instead — find nearest item gap
-    if (dist < bestDist) { bestDist = dist; best = parseInt(line.dataset.dropIdx); }
-  });
-  // More reliable: walk items and find which gap is closest
+  // Walk the items and find which gap the pointer sits in.
   const items = document.querySelectorAll('.pdf-page-item');
   if (!items.length) return 0;
   let slot = 0;
@@ -1377,10 +1759,10 @@ function _finishPdfDrop(dropIdx) {
     // Adjust: if dropping below the source, account for removal shifting
     if (insertAt > pdfDragSrc) insertAt--;
     if (insertAt !== pdfDragSrc) {
-      snapshot('Reorder pages');
       const m = images.splice(pdfDragSrc, 1)[0];
       images.splice(insertAt, 0, m);
       selectedPdfPage = insertAt;
+      snapshot('Reorder pages');
     }
   }
 
@@ -1398,8 +1780,13 @@ function drawThumb(i) {
     ctx.clearRect(0,0,44,60);
     ctx.save();
     ctx.translate(22,30);
-    ctx.rotate((images[i].rotation||0)*Math.PI/180);
-    const sc = Math.min(44/img.naturalWidth,60/img.naturalHeight);
+    const rot = (((images[i].rotation||0) % 360) + 360) % 360;
+    ctx.rotate(rot*Math.PI/180);
+    // Fit against the ROTATED footprint, else a turned page overflows its box.
+    const swap = (rot === 90 || rot === 270);
+    const fitW = swap ? img.naturalHeight : img.naturalWidth;
+    const fitH = swap ? img.naturalWidth  : img.naturalHeight;
+    const sc = Math.min(44/fitW, 60/fitH);
     ctx.drawImage(img, -img.naturalWidth*sc/2, -img.naturalHeight*sc/2, img.naturalWidth*sc, img.naturalHeight*sc);
     ctx.restore();
   };
@@ -1427,36 +1814,44 @@ function selectPdfPage(i) {
       ctx.clearRect(0,0,240,320);
       ctx.save();
       ctx.translate(120,160);
-      ctx.rotate((images[i].rotation||0)*Math.PI/180);
-      const sc = Math.min(240/imgEl.naturalWidth,320/imgEl.naturalHeight);
+      const rot = (((images[i].rotation||0) % 360) + 360) % 360;
+      ctx.rotate(rot*Math.PI/180);
+      // Fit against the ROTATED footprint, else a turned page is clipped.
+      const swap = (rot === 90 || rot === 270);
+      const fitW = swap ? imgEl.naturalHeight : imgEl.naturalWidth;
+      const fitH = swap ? imgEl.naturalWidth  : imgEl.naturalHeight;
+      const sc = Math.min(240/fitW, 320/fitH);
       ctx.drawImage(imgEl,-imgEl.naturalWidth*sc/2,-imgEl.naturalHeight*sc/2,imgEl.naturalWidth*sc,imgEl.naturalHeight*sc);
       ctx.restore();
     };
-    imgEl.src = images[i].src;
+    imgEl.src = images[i].thumb || images[i].src;
   }, 50);
 }
 
 function movePage(i, dir) {
   const ni = i + dir;
   if (ni < 0 || ni >= images.length) return;
-  snapshot('Move page');
   [images[i], images[ni]] = [images[ni], images[i]];
   selectedPdfPage = ni;
+  snapshot('Move page');
   renderPdfEditor();
   selectPdfPage(ni);
 }
 
 function duplicatePage(i) {
-  snapshot('Duplicate page');
   const orig = images[i];
+  if (!orig) return;
   const newId = _imgId();
-  imgStore[newId] = { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) };
+  // Shares the source's object URLs — putStore bumps their refcounts so neither
+  // copy can revoke pixels the other still needs.
+  putStore(newId, { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) });
   images.splice(i+1, 0, { ...orig, _id: newId });
+  snapshot('Duplicate page');
   renderPdfEditor();
 }
 
 function deletePage(i) {
-  snapshot('Delete page');
+  if (!images[i]) return;
   images.splice(i, 1);
   if (selectedPdfPage >= images.length) selectedPdfPage = images.length - 1;
   if (images.length === 0) {
@@ -1464,58 +1859,82 @@ function deletePage(i) {
     document.getElementById('detailPreview').innerHTML='<span style="color:var(--muted);font-size:.8rem">Select a page</span>';
     document.getElementById('detailActions').style.display='none';
   }
+  snapshot('Delete page');
   renderPdfEditor();
   if (images.length) selectPdfPage(selectedPdfPage);
 }
 
 function rotatePage(i, deg) {
-  snapshot('Rotate page');
+  if (!images[i]) return;
   images[i].rotation = ((images[i].rotation||0) + deg + 360) % 360;
+  snapshot('Rotate page');
   renderPdfEditor();
   selectPdfPage(i);
 }
 
-async function exportEditedPDF() {
-  if (!images.length) return;
-  const { jsPDF } = window.jspdf;
-  let pdf = null;
-  for (let i = 0; i < images.length; i++) {
-    const rendered = await renderImageToDataUrl(images[i]);
-    const imgEl = new Image(); imgEl.src = rendered;
-    await new Promise(r => { imgEl.onload = r; });
-    const w = imgEl.naturalWidth * 0.2646, h = imgEl.naturalHeight * 0.2646;
-    const ori = w > h ? 'l' : 'p';
-    if (!pdf) pdf = new jsPDF({ orientation: ori, unit: 'mm', format: [Math.max(w,h), Math.min(w,h)] });
-    else pdf.addPage([Math.max(w,h), Math.min(w,h)], ori);
-    pdf.addImage(rendered, 'JPEG', 0, 0, w > h ? Math.max(w,h) : w, w > h ? Math.min(w,h) : h, undefined, 'FAST');
-  }
-  pdf && pdf.save('edited-pdf.pdf');
-  showToast('✓ PDF exported!');
-}
+// Both views export the same document through the same code path, so the Edit
+// view now honours page size / orientation / fit / margin / filename too.
+async function exportEditedPDF() { return generatePDF(); }
 
 // ── LIGHTBOX ──
-function openLightbox() {
-  if (selectedPdfPage === null || !images[selectedPdfPage]) return;
-  const img = images[selectedPdfPage];
+let _lightboxReturnFocus = null;
+function openLightbox(idx) {
+  const i = Number.isInteger(idx) ? idx : selectedPdfPage;
+  if (!Number.isInteger(i) || !images[i]) return;
+  const img = images[i];
   const lb = document.getElementById('lightbox');
   const lbImg = document.getElementById('lightboxImg');
+  const rot = (((img.rotation || 0) % 360) + 360) % 360;
   lbImg.src = img.src;
-  lbImg.style.transform = `rotate(${img.rotation || 0}deg)`;
-  document.getElementById('lightboxCaption').textContent = `Page ${selectedPdfPage + 1} · ${img.name}`;
+  lbImg.style.transform = `rotate(${rot}deg)`;
+  // A 90°-rotated image is bounded by the OPPOSITE viewport axis, otherwise it
+  // overflows the screen once turned.
+  const swap = (rot === 90 || rot === 270);
+  lbImg.style.maxWidth  = swap ? '90vh' : '90vw';
+  lbImg.style.maxHeight = swap ? '90vw' : '90vh';
+  document.getElementById('lightboxCaption').textContent = `${i + 1} of ${images.length} · ${img.name}`;
   lb.classList.add('on');
+  _lightboxReturnFocus = document.activeElement;
+  document.getElementById('lightboxCloseBtn').focus();
 }
 
 function closeLightbox() {
   document.getElementById('lightbox').classList.remove('on');
+  if (_lightboxReturnFocus && _lightboxReturnFocus.focus) _lightboxReturnFocus.focus();
+  _lightboxReturnFocus = null;
 }
 
 // ══════════════════════════════════════
 //  EDITOR MODAL
 // ══════════════════════════════════════
+// Each crop/resize/filter "Apply" mints a new object URL for the intermediate
+// result. They're owned by the editor session, not by imgStore, so track them
+// here and revoke on close — otherwise a few edits leak several MB apiece.
+let _editorTempUrls = [];
+function setEditorSrc(url) {
+  if (isBlobUrl(editorCurrentSrc) && _editorTempUrls.includes(editorCurrentSrc)) {
+    // superseded intermediate; nothing else references it
+    _editorTempUrls = _editorTempUrls.filter(u => u !== editorCurrentSrc);
+    forgetImage(editorCurrentSrc);
+    URL.revokeObjectURL(editorCurrentSrc);
+  }
+  if (isBlobUrl(url)) _editorTempUrls.push(url);
+  editorCurrentSrc = url;
+}
+function releaseEditorTemps(keep) {
+  _editorTempUrls.forEach(u => {
+    if (u === keep) return;
+    forgetImage(u);
+    URL.revokeObjectURL(u);
+  });
+  _editorTempUrls = [];
+}
+
 function openEditorFor(i) {
   editingIndex = i;
   editorOriginalSrc = images[i].originalSrc || images[i].src;
   editorCurrentSrc = images[i].src;
+  _editorTempUrls = [];
   editorRotation = images[i].rotation || 0;
   editorFlipH = images[i].flipH || false;
   editorFlipV = images[i].flipV || false;
@@ -1524,13 +1943,22 @@ function openEditorFor(i) {
   document.getElementById('editorModal').classList.add('on');
   switchEditorTab('rotate');
   loadEditorPreview();
+  _editorReturnFocus = document.activeElement;
+  document.getElementById('editorCloseBtn').focus();
 }
 
-function closeEditor() {
+let _editorReturnFocus = null;
+function closeEditor(keepUrl) {
   document.getElementById('editorModal').classList.remove('on');
   editingIndex = null;
   teardownCropDrag();
   cropCachedImg = null;
+  releaseEditorTemps(keepUrl); // discard unsaved intermediates
+  editorCurrentSrc = null;
+  _imgCache.clear(); // release full-res editor bitmaps
+  // Return focus to whatever opened the modal, rather than dumping it on <body>.
+  if (_editorReturnFocus && _editorReturnFocus.focus) _editorReturnFocus.focus();
+  _editorReturnFocus = null;
 }
 
 function loadEditorPreview() {
@@ -1541,32 +1969,41 @@ function loadEditorPreview() {
   resetFilterSliders();
 }
 
+let _previewRaf = null;
 function renderPreviewCanvas(src) {
-  const cvs = document.getElementById('previewCanvas');
-  const ctx = cvs.getContext('2d');
-  const img = new Image();
-  img.onload = () => {
-    const MAX = 480;
-    let w = img.naturalWidth, h = img.naturalHeight;
-    const scale = Math.min(MAX/w, MAX/h, 1);
-    w = Math.round(w*scale); h = Math.round(h*scale);
-    const rad = (editorRotation * Math.PI) / 180;
-    const cw = Math.abs(w*Math.cos(rad)) + Math.abs(h*Math.sin(rad));
-    const ch = Math.abs(w*Math.sin(rad)) + Math.abs(h*Math.cos(rad));
-    cvs.width = Math.round(cw); cvs.height = Math.round(ch);
-    ctx.save();
-    ctx.translate(cvs.width/2, cvs.height/2);
-    ctx.rotate(rad);
-    ctx.scale(editorFlipH ? -1 : 1, editorFlipV ? -1 : 1);
-    ctx.filter = buildFilterString();
-    ctx.drawImage(img, -w/2, -h/2, w, h);
-    ctx.restore();
-  };
-  img.src = src;
+  // Dragging a filter slider fires far faster than we can repaint; collapse
+  // bursts into one redraw per frame.
+  if (_previewRaf) cancelAnimationFrame(_previewRaf);
+  _previewRaf = requestAnimationFrame(() => {
+    _previewRaf = null;
+    loadImage(src).then(img => {
+      const cvs = document.getElementById('previewCanvas');
+      if (!cvs) return;
+      const ctx = cvs.getContext('2d');
+      const MAX = 480;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const scale = Math.min(MAX/w, MAX/h, 1);
+      w = Math.round(w*scale); h = Math.round(h*scale);
+      const rad = (editorRotation * Math.PI) / 180;
+      const cw = Math.abs(w*Math.cos(rad)) + Math.abs(h*Math.sin(rad));
+      const ch = Math.abs(w*Math.sin(rad)) + Math.abs(h*Math.cos(rad));
+      cvs.width = Math.round(cw); cvs.height = Math.round(ch);
+      ctx.save();
+      ctx.translate(cvs.width/2, cvs.height/2);
+      ctx.rotate(rad);
+      ctx.scale(editorFlipH ? -1 : 1, editorFlipV ? -1 : 1);
+      ctx.filter = buildFilterString();
+      ctx.drawImage(img, -w/2, -h/2, w, h);
+      ctx.restore();
+    }).catch(() => showToast('⚠️ Could not display this image'));
+  });
 }
 
-function buildFilterString() {
-  const f = editorFilters;
+function buildFilterString() { return buildFilterStringFrom(editorFilters); }
+// Takes an explicit filter set so bulk operations can bake a transform without
+// depending on the live editor state.
+function buildFilterStringFrom(filters) {
+  const f = filters || {};
   let s = '';
   if (f.brightness !== undefined) s += `brightness(${f.brightness}%) `;
   if (f.contrast !== undefined) s += `contrast(${f.contrast}%) `;
@@ -1623,12 +2060,11 @@ function applyCustomAngle() {
 
 // ── RESIZE ──
 function updateSizeInfo() {
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
+  loadImage(editorCurrentSrc).then(img => {
     document.getElementById('resW').value = img.naturalWidth;
     document.getElementById('resH').value = img.naturalHeight;
     showSizeInfo(img.naturalWidth, img.naturalHeight, img.naturalWidth, img.naturalHeight);
-  };
+  }).catch(() => {});
 }
 function showSizeInfo(ow, oh, nw, nh) {
   const origKB = estimateKB(ow, oh);
@@ -1637,46 +2073,49 @@ function showSizeInfo(ow, oh, nw, nh) {
     `<span>Original: <strong>${ow}×${oh}px</strong> (~${origKB}KB)</span>
      <span>New: <strong class="live-size">${nw}×${nh}px</strong> (~<span class="live-size">${newKB}KB</span>)</span>`;
 }
-function estimateKB(w, h) { return Math.round(w * h * 3 / 1024); }
+// Rough JPEG size at the ~0.92 quality this editor writes. The old estimate used
+// raw RGB (3 bytes/px), which overstated real output by roughly 10x.
+function estimateKB(w, h) { return Math.max(1, Math.round(w * h * 0.33 / 1024)); }
 function onResizeInput(changed) {
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
+  loadImage(editorCurrentSrc).then(img => {
     const lock = document.getElementById('lockAR').checked;
-    let w = parseInt(document.getElementById('resW').value)||1;
-    let h = parseInt(document.getElementById('resH').value)||1;
+    let w = Math.max(1, parseInt(document.getElementById('resW').value)||1);
+    let h = Math.max(1, parseInt(document.getElementById('resH').value)||1);
     if (lock) {
       const ar = img.naturalWidth / img.naturalHeight;
-      if (changed === 'w') { h = Math.round(w / ar); document.getElementById('resH').value = h; }
-      else { w = Math.round(h * ar); document.getElementById('resW').value = w; }
+      if (changed === 'w') { h = Math.max(1, Math.round(w / ar)); document.getElementById('resH').value = h; }
+      else { w = Math.max(1, Math.round(h * ar)); document.getElementById('resW').value = w; }
     }
     showSizeInfo(img.naturalWidth, img.naturalHeight, w, h);
-  };
+  }).catch(() => {});
 }
 function setResizePercent(pct) {
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
-    const w = Math.round(img.naturalWidth * pct / 100);
-    const h = Math.round(img.naturalHeight * pct / 100);
+  loadImage(editorCurrentSrc).then(img => {
+    const w = Math.max(1, Math.round(img.naturalWidth * pct / 100));
+    const h = Math.max(1, Math.round(img.naturalHeight * pct / 100));
     document.getElementById('resW').value = w;
     document.getElementById('resH').value = h;
     showSizeInfo(img.naturalWidth, img.naturalHeight, w, h);
-  };
+  }).catch(() => {});
 }
 function applyResize() {
-  const w = parseInt(document.getElementById('resW').value)||1;
-  const h = parseInt(document.getElementById('resH').value)||1;
-  const cvs = document.createElement('canvas');
-  cvs.width = w; cvs.height = h;
-  const ctx = cvs.getContext('2d');
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
+  const w = Math.max(1, parseInt(document.getElementById('resW').value)||1);
+  const h = Math.max(1, parseInt(document.getElementById('resH').value)||1);
+  loadImage(editorCurrentSrc).then(img => {
+    const cvs = document.createElement('canvas');
+    cvs.width = w; cvs.height = h;
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); // JPEG has no alpha
     ctx.drawImage(img, 0, 0, w, h);
-    editorCurrentSrc = cvs.toDataURL('image/jpeg', 0.92);
-    renderPreviewCanvas(editorCurrentSrc);
-    updateSizeInfo();
-  };
+    return canvasToUrl(cvs, editorQuality()).then(({url}) => {
+      cvs.width = 0; cvs.height = 0;
+      setEditorSrc(url);
+      renderPreviewCanvas(editorCurrentSrc);
+      updateSizeInfo();
+    });
+  }).catch(() => showToast('⚠️ Could not resize — image failed to load'));
 }
-function resetResize() { editorCurrentSrc = editorOriginalSrc; renderPreviewCanvas(editorCurrentSrc); updateSizeInfo(); }
+function resetResize() { setEditorSrc(editorOriginalSrc); renderPreviewCanvas(editorCurrentSrc); updateSizeInfo(); }
 
 // ── CROP ──
 let cropImgNaturalW=0, cropImgNaturalH=0, cropCanvasScale=1;
@@ -1697,10 +2136,8 @@ function getCanvasPos(cvs, e) {
 
 function setupCropMode() {
   const cvs = document.getElementById('previewCanvas');
-  const ctx = cvs.getContext('2d');
   cropCachedImg = null; // reset cache
-  const img = new Image();
-  img.onload = () => {
+  loadImage(editorCurrentSrc).then(img => {
     cropImgNaturalW = img.naturalWidth;
     cropImgNaturalH = img.naturalHeight;
     const MAX = 480;
@@ -1713,8 +2150,7 @@ function setupCropMode() {
     drawCropOverlay();
     updateCropInputs();
     setupCropDrag();
-  };
-  img.src = editorCurrentSrc;
+  }).catch(() => showToast('⚠️ Could not load image for cropping'));
 }
 
 function drawCropOverlay() {
@@ -1834,13 +2270,19 @@ function updateCropInputs() {
 }
 
 function updateCropFromInputs() {
+  const cvs = document.getElementById('previewCanvas');
   const s = cropCanvasScale || 1;
-  cropRect = {
-    x: (parseInt(document.getElementById('cropX').value)  || 0) * s,
-    y: (parseInt(document.getElementById('cropY').value)  || 0) * s,
-    w: (parseInt(document.getElementById('cropW').value)  || cropImgNaturalW) * s,
-    h: (parseInt(document.getElementById('cropH').value)  || cropImgNaturalH) * s,
-  };
+  let x = (parseInt(document.getElementById('cropX').value) || 0) * s;
+  let y = (parseInt(document.getElementById('cropY').value) || 0) * s;
+  let w = (parseInt(document.getElementById('cropW').value) || cropImgNaturalW) * s;
+  let h = (parseInt(document.getElementById('cropH').value) || cropImgNaturalH) * s;
+  // Keep the selection inside the image: an out-of-bounds source rect makes
+  // drawImage emit blank bands (which then bake in as black on JPEG export).
+  x = Math.max(0, Math.min(x, cvs.width  - 1));
+  y = Math.max(0, Math.min(y, cvs.height - 1));
+  w = Math.max(1, Math.min(w, cvs.width  - x));
+  h = Math.max(1, Math.min(h, cvs.height - y));
+  cropRect = { x, y, w, h };
   drawCropOverlay();
 }
 
@@ -1849,22 +2291,24 @@ function applyCrop() {
   const s = cropCanvasScale || 1;
   const x = cropRect.x / s, y = cropRect.y / s;
   const w = Math.max(1, cropRect.w / s), h = Math.max(1, cropRect.h / s);
-  const cvs = document.createElement('canvas');
-  cvs.width = w; cvs.height = h;
-  const ctx = cvs.getContext('2d');
   // Draw from the original editorCurrentSrc at natural resolution
-  const img = new Image();
-  img.onload = () => {
+  loadImage(editorCurrentSrc).then(img => {
+    const cvs = document.createElement('canvas');
+    cvs.width = w; cvs.height = h;
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); // JPEG has no alpha
     ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-    editorCurrentSrc = cvs.toDataURL('image/jpeg', 0.92);
-    cropCachedImg = null; // force reload in setupCropMode
-    setupCropMode();
-  };
-  img.src = editorCurrentSrc;
+    return canvasToUrl(cvs, editorQuality()).then(({url}) => {
+      cvs.width = 0; cvs.height = 0;
+      setEditorSrc(url);
+      cropCachedImg = null; // force reload in setupCropMode
+      setupCropMode();
+    });
+  }).catch(() => showToast('⚠️ Could not crop — image failed to load'));
 }
 
 function resetCrop() {
-  editorCurrentSrc = editorOriginalSrc;
+  setEditorSrc(editorOriginalSrc);
   cropCachedImg = null;
   setupCropMode();
 }
@@ -1907,18 +2351,21 @@ function resetFilterSliders() {
   });
 }
 function applyFilters() {
-  const cvs = document.createElement('canvas');
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = () => {
+  loadImage(editorCurrentSrc).then(img => {
+    const cvs = document.createElement('canvas');
     cvs.width=img.naturalWidth; cvs.height=img.naturalHeight;
     const ctx=cvs.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,cvs.width,cvs.height); // JPEG has no alpha
     ctx.filter = buildFilterString();
     ctx.drawImage(img,0,0);
-    editorCurrentSrc=cvs.toDataURL('image/jpeg',.92);
-    editorFilters={};
-    resetFilterSliders();
-    renderPreviewCanvas(editorCurrentSrc);
-  };
+    return canvasToUrl(cvs, editorQuality()).then(({url}) => {
+      cvs.width = 0; cvs.height = 0;
+      setEditorSrc(url);
+      editorFilters={};
+      resetFilterSliders();
+      renderPreviewCanvas(editorCurrentSrc);
+    });
+  }).catch(() => showToast('⚠️ Could not apply filters — image failed to load'));
 }
 function resetFilters() {
   editorFilters={};
@@ -1926,44 +2373,92 @@ function resetFilters() {
   renderPreviewCanvas(editorCurrentSrc);
 }
 
+// Eight sliders is a lot of fiddling for what are, in practice, three or four
+// recurring looks. "Document" is tuned for scanned text: drop colour, push
+// contrast and brightness so paper goes white and ink goes black.
+const FILTER_PRESETS = {
+  document:  { grayscale:100, contrast:165, brightness:115, saturate:0 },
+  grayscale: { grayscale:100, contrast:105, brightness:100 },
+  vivid:     { saturate:150, contrast:115, brightness:104 },
+  soften:    { blur:1, brightness:104, contrast:96, saturate:106 }
+};
+function applyFilterPreset(name) {
+  const p = FILTER_PRESETS[name];
+  if (!p) return;
+  editorFilters = { ...p };
+  resetFilterSliders();
+  renderPreviewCanvas(editorCurrentSrc);
+  showToast(`Preset: ${name}`);
+}
+
 // ── SAVE / REVERT ──
-function saveEdits() {
-  if (editingIndex === null) return;
-  snapshot('Edit image');
-  const img = new Image(); img.src = editorCurrentSrc;
-  img.onload = async () => {
-    const rad = (editorRotation * Math.PI) / 180;
-    const bw = Math.abs(img.naturalWidth*Math.cos(rad))+Math.abs(img.naturalHeight*Math.sin(rad));
-    const bh = Math.abs(img.naturalWidth*Math.sin(rad))+Math.abs(img.naturalHeight*Math.cos(rad));
-    const cvs = document.createElement('canvas');
-    cvs.width=Math.round(bw); cvs.height=Math.round(bh);
-    const ctx=cvs.getContext('2d');
-    ctx.translate(cvs.width/2,cvs.height/2);
-    ctx.rotate(rad);
-    ctx.scale(editorFlipH?-1:1, editorFlipV?-1:1);
-    ctx.filter = buildFilterString();
-    ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
-    const finalSrc = cvs.toDataURL('image/jpeg',.92);
-    // Free canvas
-    cvs.width = 0; cvs.height = 0;
-    const id = images[editingIndex]._id;
-    const thumb = await generateThumb(finalSrc);
-    imgStore[id] = { src: finalSrc, originalSrc: imgStore[id]?.originalSrc || finalSrc, thumb };
-    images[editingIndex].src = finalSrc;
-    images[editingIndex].thumb = thumb;
-    images[editingIndex].rotation = 0;
-    images[editingIndex].flipH = false;
-    images[editingIndex].flipV = false;
-    images[editingIndex].filters = {};
-    images[editingIndex].originalSrc = imgStore[id].originalSrc;
-    closeEditor();
+// Bakes rotation/flip/filters into pixels for one image and swaps in a fresh
+// store entry. Returns the new src URL, or null if the source couldn't load.
+async function bakeTransform(idx, srcUrl, rot, fh, fv, filters) {
+  let img;
+  try { img = await loadImage(srcUrl); } catch (e) { return null; }
+  const rad = (rot * Math.PI) / 180;
+  const bw = Math.abs(img.naturalWidth*Math.cos(rad))+Math.abs(img.naturalHeight*Math.sin(rad));
+  const bh = Math.abs(img.naturalWidth*Math.sin(rad))+Math.abs(img.naturalHeight*Math.cos(rad));
+  const cvs = document.createElement('canvas');
+  cvs.width=Math.round(bw); cvs.height=Math.round(bh);
+  const ctx=cvs.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,cvs.width,cvs.height); // JPEG has no alpha
+  ctx.translate(cvs.width/2,cvs.height/2);
+  ctx.rotate(rad);
+  ctx.scale(fh?-1:1, fv?-1:1);
+  ctx.filter = buildFilterStringFrom(filters);
+  ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
+  const { url: finalSrc } = await canvasToUrl(cvs, editorQuality());
+  cvs.width = 0; cvs.height = 0; // free canvas
+  // Allocate a NEW store id rather than overwriting the old entry. History
+  // snapshots reference images by _id, so mutating an existing entry in place
+  // would rewrite the pixels every past snapshot points at — making undo a no-op.
+  const oldId = images[idx]._id;
+  const newId = _imgId();
+  const thumb = await generateThumb(finalSrc);
+  putStore(newId, { src: finalSrc, originalSrc: imgStore[oldId]?.originalSrc || finalSrc, thumb });
+  Object.assign(images[idx], {
+    _id: newId, src: finalSrc, thumb,
+    rotation: 0, flipH: false, flipV: false, filters: {},
+    originalSrc: imgStore[newId].originalSrc
+  });
+  return finalSrc;
+}
+
+function saveEdits(applyToAll) {
+  if (editingIndex === null || !images[editingIndex]) return;
+  const rot = editorRotation, fh = editorFlipH, fv = editorFlipV;
+  const filters = { ...editorFilters };
+  const srcForCurrent = editorCurrentSrc;
+  const targetIdx = applyToAll ? images.map((_, i) => i) : [editingIndex];
+
+  (async () => {
+    let done = 0, failed = 0, keepUrl = null;
+    for (const i of targetIdx) {
+      // The edited pixels only belong to the image being edited; every other
+      // image gets the same transform applied to its OWN pixels.
+      const src = (i === editingIndex) ? srcForCurrent : images[i].src;
+      const url = await bakeTransform(i, src, rot, fh, fv, filters);
+      if (!url) { failed++; } else if (i === editingIndex) { keepUrl = url; }
+      done++;
+      if (applyToAll && targetIdx.length > 3) {
+        showToast(`Applying to all… ${done}/${targetIdx.length}`);
+        await new Promise(r => setTimeout(r, 0)); // keep the UI responsive
+      }
+    }
+    if (done === failed) { showToast('⚠️ Could not save — image failed to load'); return; }
+    snapshot(applyToAll ? 'Apply to all' : 'Edit image');
+    closeEditor(keepUrl); // keepUrl is owned by imgStore; discard the rest
     render();
     renderPdfEditor();
-    showToast('✓ Changes saved');
-  };
+    showToast(applyToAll
+      ? `✓ Applied to ${done - failed} image${done-failed>1?'s':''}`
+      : '✓ Changes saved');
+  })();
 }
 function revertAll() {
-  editorCurrentSrc = editorOriginalSrc;
+  setEditorSrc(editorOriginalSrc);
   editorRotation=0; editorFlipH=false; editorFlipV=false; editorFilters={};
   loadEditorPreview();
 }
@@ -1971,60 +2466,87 @@ function revertAll() {
 // ══════════════════════════════════════
 //  GENERATE PDF
 // ══════════════════════════════════════
+// Returns a transient base64 JPEG for jsPDF, which needs the encoded bytes
+// inline. Storage stays Blob-backed; only the page being written is ever held
+// in base64, and it's released as soon as jsPDF has copied it.
 async function renderImageToDataUrl(imgObj) {
-  return new Promise(res => {
-    const img = new Image(); img.src = imgObj.src;
-    img.onload = () => {
-      const rad=(imgObj.rotation||0)*Math.PI/180;
-      const bw=Math.abs(img.naturalWidth*Math.cos(rad))+Math.abs(img.naturalHeight*Math.sin(rad));
-      const bh=Math.abs(img.naturalWidth*Math.sin(rad))+Math.abs(img.naturalHeight*Math.cos(rad));
-      const cvs=document.createElement('canvas');
-      cvs.width=Math.round(bw); cvs.height=Math.round(bh);
-      const ctx=cvs.getContext('2d');
-      ctx.translate(cvs.width/2,cvs.height/2);
-      ctx.rotate(rad);
-      ctx.scale(imgObj.flipH?-1:1,imgObj.flipV?-1:1);
-      ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
-      const result = cvs.toDataURL('image/jpeg',.85);
-      // Free canvas memory
-      cvs.width = 0; cvs.height = 0;
-      res(result);
-    };
-    img.onerror = () => res(imgObj.src);
-  });
+  let img;
+  try { img = await loadImage(imgObj.src); }
+  catch (e) { return null; }
+  const rad=(imgObj.rotation||0)*Math.PI/180;
+  const bw=Math.abs(img.naturalWidth*Math.cos(rad))+Math.abs(img.naturalHeight*Math.sin(rad));
+  const bh=Math.abs(img.naturalWidth*Math.sin(rad))+Math.abs(img.naturalHeight*Math.cos(rad));
+  const cvs=document.createElement('canvas');
+  cvs.width=Math.round(bw); cvs.height=Math.round(bh);
+  const ctx=cvs.getContext('2d');
+  // JPEG has no alpha channel: without a white base, transparent regions of
+  // a PNG encode as solid black. Must happen before the transform.
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,cvs.width,cvs.height);
+  ctx.translate(cvs.width/2,cvs.height/2);
+  ctx.rotate(rad);
+  ctx.scale(imgObj.flipH?-1:1,imgObj.flipV?-1:1);
+  ctx.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);
+  const result = cvs.toDataURL('image/jpeg', exportQuality());
+  const dims = { w: cvs.width, h: cvs.height };
+  // Free canvas memory
+  cvs.width = 0; cvs.height = 0;
+  return { dataUrl: result, ...dims };
+}
+
+// Route export progress to whichever view the user is actually looking at.
+function setExportProgress(show, label, pct) {
+  if (currentTab === 'edit') {
+    showPdfLoading('edit', show, 'Exporting PDF…', label || '', pct || 0);
+    return;
+  }
+  document.getElementById('progWrap').classList.toggle('on', show);
+  if (show) {
+    document.getElementById('progLbl').textContent = label || 'Processing…';
+    document.getElementById('progFill').style.width = (pct || 0) + '%';
+  }
 }
 
 async function generatePDF() {
   if (!images.length) return;
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    alert('The PDF library failed to load.\n\nCheck your internet connection and reload the page.');
+    return;
+  }
   const { jsPDF } = window.jspdf;
   const pageSize = document.getElementById('pageSize').value;
   const orientation = document.getElementById('orientation').value;
   const imgFit = document.getElementById('imgFit').value;
-  const margin = parseFloat(document.getElementById('margin').value)||0;
-  const filename = (document.getElementById('filename').value.trim()||'my-photos') + '.pdf';
+  // Clamp: the HTML max is advisory only, and a margin wider than the page
+  // makes the available area negative and the layout maths meaningless.
+  const marginEl = document.getElementById('margin');
+  let margin = parseFloat(marginEl.value); if (!isFinite(margin) || margin < 0) margin = 0;
+  const filename = sanitizeFilename(document.getElementById('filename').value) + '.pdf';
 
   const btn = document.getElementById('convertBtn');
   btn.disabled=true;
-  document.getElementById('progWrap').classList.add('on');
+  setExportProgress(true, 'Preparing…', 0);
   document.getElementById('successMsg').classList.remove('on');
 
-  let pdf = null;
+  let pdf = null, pages = 0;
+  const skipped = [];
+  try {
   for (let i=0;i<images.length;i++) {
-    document.getElementById('progLbl').textContent=`Processing image ${i+1} of ${images.length}…`;
-    document.getElementById('progFill').style.width=((i/images.length)*90)+'%';
+    setExportProgress(true, `Processing image ${i+1} of ${images.length}…`, (i/images.length)*90);
     await new Promise(r=>setTimeout(r,5));
 
     const rendered = await renderImageToDataUrl(images[i]);
-    const imgEl=new Image(); imgEl.src=rendered;
-    await new Promise(r=>{imgEl.onload=r;imgEl.onerror=r;});
+    // Skip pages whose pixels can't be read rather than aborting the whole export.
+    if (!rendered) { skipped.push(images[i].name); continue; }
+    // Dimensions come back with the encode, so there's no second decode here.
+    const natW = rendered.w, natH = rendered.h;
 
     let pgW,pgH,pgOri;
     if (pageSize==='fit') {
-      pgW=imgEl.naturalWidth*.2646; pgH=imgEl.naturalHeight*.2646;
+      pgW=natW*.2646; pgH=natH*.2646;
       pgOri=pgW>pgH?'l':'p';
     } else {
       const [w,h]=PAGE_SIZES[pageSize]||PAGE_SIZES.a4;
-      if (orientation==='auto') pgOri=imgEl.naturalWidth>imgEl.naturalHeight?'l':'p';
+      if (orientation==='auto') pgOri=natW>natH?'l':'p';
       else pgOri=orientation==='landscape'?'l':'p';
       pgW=pgOri==='l'?h:w; pgH=pgOri==='l'?w:h;
     }
@@ -2032,34 +2554,57 @@ async function generatePDF() {
     if (!pdf) pdf=new jsPDF({orientation:pgOri,unit:'mm',format:pageSize==='fit'?[pgW,pgH]:pageSize});
     else pdf.addPage(pageSize==='fit'?[pgW,pgH]:pageSize,pgOri);
 
-    const avW=pgW-margin*2, avH=pgH-margin*2;
-    const iAR=imgEl.naturalWidth/imgEl.naturalHeight;
+    // Never let the margin consume the whole page (leave at least 20% of each axis).
+    const mg = Math.min(margin, pgW*0.4, pgH*0.4);
+    const avW=pgW-mg*2, avH=pgH-mg*2;
+    const iAR=natW/natH;
     const pAR=avW/avH;
     let dW,dH,dX,dY;
     if (imgFit==='contain') {
       if(iAR>pAR){dW=avW;dH=avW/iAR;}else{dH=avH;dW=avH*iAR;}
-      dX=margin+(avW-dW)/2; dY=margin+(avH-dH)/2;
+      dX=mg+(avW-dW)/2; dY=mg+(avH-dH)/2;
     } else if (imgFit==='fill') {
       if(iAR>pAR){dH=avH;dW=avH*iAR;}else{dW=avW;dH=avW/iAR;}
-      dX=margin+(avW-dW)/2; dY=margin+(avH-dH)/2;
+      dX=mg+(avW-dW)/2; dY=mg+(avH-dH)/2;
     } else {
-      dW=imgEl.naturalWidth*.2646; dH=imgEl.naturalHeight*.2646; dX=margin; dY=margin;
+      // "Actual size", but never larger than the printable area — an oversized
+      // photo used to silently run off the page with no way to tell.
+      dW=natW*.2646; dH=natH*.2646;
+      const shrink = Math.min(1, avW/dW, avH/dH);
+      dW*=shrink; dH*=shrink;
+      dX=mg; dY=mg;
     }
-    const fmt=images[i].name.toLowerCase().endsWith('.png')?'PNG':'JPEG';
-    pdf.addImage(rendered,fmt,dX,dY,dW,dH,undefined,'FAST');
+    // renderImageToDataUrl always re-encodes to JPEG, so the format must say
+    // JPEG regardless of the source file's extension.
+    pdf.addImage(rendered.dataUrl,'JPEG',dX,dY,dW,dH,undefined,'FAST');
+    pages++;
   }
 
-  document.getElementById('progFill').style.width='100%';
-  document.getElementById('progLbl').textContent='Finalizing…';
+  setExportProgress(true, 'Finalizing…', 100);
   await new Promise(r=>setTimeout(r,120));
-  pdf && pdf.save(filename);
+  if (!pdf || !pages) {
+    alert('Nothing could be exported — none of the images could be read.');
+    return;
+  }
+  pdf.save(filename);
 
-  btn.disabled=false;
-  document.getElementById('progWrap').classList.remove('on');
-  document.getElementById('successDetail').textContent=`${images.length} page${images.length>1?'s':''} · "${filename}"`;
-  document.getElementById('successMsg').classList.add('on');
-  document.getElementById('successMsg').scrollIntoView({behavior:'smooth',block:'nearest'});
-  showToast('✓ PDF saved!');
+  document.getElementById('successDetail').textContent=`${pages} page${pages>1?'s':''} · "${filename}"`;
+  // The success banner lives in the Convert view; only surface it when visible.
+  if (currentTab === 'convert') {
+    document.getElementById('successMsg').classList.add('on');
+    document.getElementById('successMsg').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+  showToast(skipped.length
+    ? `✓ Saved "${filename}" — skipped ${skipped.length} unreadable`
+    : `✓ Saved "${filename}"`);
+  } catch (err) {
+    // A mid-export failure used to leave the button disabled and the progress
+    // bar spinning forever with no explanation.
+    alert(`Export failed.\n\n${err && err.message ? err.message : err}`);
+  } finally {
+    btn.disabled=false;
+    setExportProgress(false);
+  }
 }
 
 // ══════════════════════════════════════
@@ -2078,34 +2623,47 @@ document.addEventListener('keydown', e => {
 
   if (modalOpen || inInput) return;
 
+  // Normalise: with Shift held, e.key for the Z key is 'Z', not 'z'.
+  const k = (e.key || '').toLowerCase();
+
   // Undo/Redo
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); return; }
-  if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key === 'z' || e.key === 'y')) { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'z') { e.preventDefault(); undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && k === 'z') || k === 'y')) { e.preventDefault(); redo(); return; }
 
   if (currentTab === 'convert') {
-    // Delete selected
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConvertCard !== null) {
+    const hasSel = Number.isInteger(selectedConvertCard) && !!images[selectedConvertCard];
+    // Delete selected — the whole multi-selection if there is one
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (hasSel || selectedSet.size)) {
       e.preventDefault();
-      removeImage(selectedConvertCard);
-      if (images.length) selectedConvertCard = Math.min(selectedConvertCard, images.length - 1);
-      else selectedConvertCard = null;
+      if (selectedSet.size) {
+        const n = selectedSet.size;
+        [...selectedSet].sort((a,b)=>b-a).forEach(i => { if (images[i]) images.splice(i,1); });
+        selectedSet.clear(); selectedConvertCard = null;
+        snapshot('Delete selected');
+        render(); renderPdfEditor();
+        showToast(`Removed ${n} image${n>1?'s':''}`);
+      } else {
+        removeImage(selectedConvertCard); // adjusts the selection itself
+      }
       return;
     }
     // Arrow navigate
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
-      selectedConvertCard = ((selectedConvertCard || 0) + 1) % images.length;
+      if (!images.length) return;
+      selectedConvertCard = hasSel ? (selectedConvertCard + 1) % images.length : 0;
       render();
       return;
     }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
-      selectedConvertCard = ((selectedConvertCard || 0) - 1 + images.length) % images.length;
+      if (!images.length) return;
+      selectedConvertCard = hasSel ? (selectedConvertCard - 1 + images.length) % images.length : images.length - 1;
       render();
       return;
     }
     // Duplicate
-    if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedConvertCard !== null) {
+    if ((e.ctrlKey || e.metaKey) && k === 'd' && hasSel) {
       e.preventDefault();
       duplicateImage(selectedConvertCard);
       return;
@@ -2113,14 +2671,15 @@ document.addEventListener('keydown', e => {
   }
 
   if (currentTab === 'edit') {
+    const hasPage = Number.isInteger(selectedPdfPage) && !!images[selectedPdfPage];
     // Delete selected page
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPdfPage !== null) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && hasPage) {
       e.preventDefault();
       deletePage(selectedPdfPage);
       return;
     }
     // Arrow navigate pages
-    if (e.key === 'ArrowDown' && selectedPdfPage !== null && selectedPdfPage < images.length - 1) {
+    if (e.key === 'ArrowDown' && hasPage && selectedPdfPage < images.length - 1) {
       e.preventDefault();
       selectPdfPage(selectedPdfPage + 1);
       // scroll into view
@@ -2128,7 +2687,7 @@ document.addEventListener('keydown', e => {
       if (items[selectedPdfPage]) items[selectedPdfPage].scrollIntoView({block:'nearest'});
       return;
     }
-    if (e.key === 'ArrowUp' && selectedPdfPage !== null && selectedPdfPage > 0) {
+    if (e.key === 'ArrowUp' && hasPage && selectedPdfPage > 0) {
       e.preventDefault();
       selectPdfPage(selectedPdfPage - 1);
       const items = document.querySelectorAll('.pdf-page-item');
@@ -2136,7 +2695,7 @@ document.addEventListener('keydown', e => {
       return;
     }
     // Duplicate
-    if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedPdfPage !== null) {
+    if ((e.ctrlKey || e.metaKey) && k === 'd' && hasPage) {
       e.preventDefault();
       duplicatePage(selectedPdfPage);
       return;
@@ -2144,7 +2703,10 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ── Init: take initial empty snapshot ──
+// ── Init ──
+restoreSettings();
+try { toggleHints(localStorage.getItem('photopdf-hints') !== '0'); } catch(e) {}
+updateChrome();
 snapshot('Start');
 </script>
 </body>
