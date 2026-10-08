@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoPDF Studio</title>
+<script src="vendor/jspdf/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="logo-dot"></span>PhotoPDF Studio</div>
+  <div class="tab-bar">
+    <button class="tab active" onclick="switchTab('convert')">Convert</button>
+    <button class="tab" onclick="switchTab('edit')">Edit PDF</button>
+  </div>
+  <div class="header-right">
+    <button class="dark-toggle" id="darkToggle" title="Toggle dark mode" onclick="toggleDark()">🌙</button>
+  </div>
+</header>
+
+<!-- Keyboard shortcut hints -->
+<div class="kbd-hints" id="kbdHints">
+  <span class="kbd"><kbd>Del</kbd> remove selected</span>
+  <span class="kbd"><kbd>←</kbd><kbd>→</kbd> prev/next page</span>
+  <span class="kbd"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span>
+  <span class="kbd"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span>
+  <span class="kbd"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</span>
+  <span class="kbd">Hold & drag to reorder</span>
+  <button class="kbd-dismiss" title="Hide shortcuts" aria-label="Hide keyboard shortcuts" onclick="toggleHints(false)">✕</button>
+</div>
+
+<!-- Undo/Redo bar -->
+<div class="undo-bar" id="undoBar">
+  <button id="undoBtn" onclick="undo()" disabled title="Ctrl+Z">↩ Undo</button>
+  <button id="redoBtn" onclick="redo()" disabled title="Ctrl+Shift+Z">↪ Redo</button>
+  <button type="button" id="discardHistoryBtn" onclick="discardUndoHistory()" title="Discard Undo and Redo history while keeping current pages">Free undo history</button>
+  <span id="undoLabel" style="margin-left:4px"></span>
+</div>
+
+<!-- ════════════════════ CONVERT PAGE ════════════════════ -->
+<section id="exportReport" class="wrap export-report" hidden aria-live="polite" aria-label="Export result"></section>
+<div class="page active" id="page-convert">
+  <div class="hero">
+    <h1>Photos to<br><em>perfect PDF</em></h1>
+    <p>Drop images, arrange, edit each page, then export your perfect PDF in seconds.</p>
+  </div>
+
+  <div class="wrap">
+    <div class="success" id="successMsg">
+      <div class="success-ico">✓</div>
+      <div><strong id="successTitle">PDF saved!</strong><br><span id="successDetail" style="font-weight:400;font-size:.8rem"></span></div>
+    </div>
+
+    <!-- PDF loading indicator -->
+    <div class="pdf-loading" id="pdfLoading">
+      <div class="spinner"></div>
+      <div class="pdf-loading-lbl" id="pdfLoadingLbl">Loading PDF…</div>
+      <div class="pdf-loading-sub" id="pdfLoadingSub">Rendering pages…</div>
+      <div class="pdf-prog-track"><div class="pdf-prog-fill" id="pdfProgFill"></div></div>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple>
+      <div class="drop-inner">
+        <div class="drop-icon">🖼</div>
+        <h3>Drop images here</h3>
+      </div>
+      <p>JPG · PNG · WebP · GIF · BMP — files load in order within safety limits. TIFF is not supported; animated images become a still picture.</p>
+      <div class="browse-btn">Browse files</div>
+    </div>
+
+    <div id="importReport" class="import-report" hidden role="status"></div>
+    <p class="resource-hint">Up to 200 pages · images up to 32 MB and 16 megapixels (8,192 pixels per side) · PDFs up to 50 MB. Large or unverifiable images are rejected before decoding.</p>
+    <div class="toolbar" id="toolbar">
+      <div class="tl">
+        <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700;font-size:.85rem">
+          <span class="badge-count" id="countBadge">0</span>&nbsp;images
+        </div>
+        <button class="btn" onclick="document.getElementById('fileInput').click()">+ Add more</button>
+        <button class="btn" onclick="sortByName()">Sort A–Z</button>
+        <button class="btn" onclick="reverseOrder()">Reverse</button>
+        <button class="btn" onclick="rotateAll(90)" title="Rotate every image 90°">↻ Rotate all</button>
+        <button class="btn" id="selectAllBtn" onclick="toggleSelectAll()">Select all</button>
+        <button class="btn hints-show" onclick="toggleHints(true)" title="Show keyboard shortcuts">⌨ Shortcuts</button>
+      </div>
+      <div class="tl">
+        <span id="selInfo" style="font-size:.78rem;color:var(--muted)"></span>
+        <button class="btn btn-red" onclick="clearAll()">Clear all</button>
+      </div>
+    </div>
+
+    <!-- Export settings live in ONE element that switchTab() re-mounts into whichever
+         view is active, so both tabs drive the same document with the same options. -->
+    <div id="settingsMountConvert">
+    <div class="settings-bar" id="settingsBar">
+      <div class="sg"><label>Page size</label>
+        <select id="pageSize"><option value="a4">A4 (210×297mm)</option><option value="letter">Letter (8.5×11in)</option><option value="a3">A3 (297×420mm)</option><option value="a5">A5 (148×210mm)</option><option value="fit">Fit to image</option></select></div>
+      <div class="sg"><label>Orientation</label>
+        <select id="orientation"><option value="auto">Auto per image</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></div>
+      <div class="sg"><label>Image fit</label>
+        <select id="imgFit"><option value="contain">Contain (no crop)</option><option value="fill">Fill within margins</option><option value="actual">Print size (DPI)</option></select></div>
+      <div class="sg"><label>Margin (mm)</label><input type="number" id="margin" value="10" min="0" max="40"></div>
+      <div class="sg"><label for="printDpi">Photo print DPI</label><input type="number" id="printDpi" value="300" min="1" max="2400" step="1" aria-describedby="printSizeHint"></div>
+      <div class="sg"><label for="oversize">When print size is too large</label>
+        <select id="oversize" aria-describedby="printSizeHint"><option value="shrink">Scale down to fit</option><option value="crop">Keep size and crop</option></select></div>
+      <div class="sg"><label>Quality</label>
+        <select id="quality"><option value="0.85" selected>Balanced</option><option value="0.95">High (larger file)</option><option value="0.72">Small (smaller file)</option></select></div>
+      <div class="sg"><label>PDF filename</label><input type="text" id="filename" value="my-photos"></div>
+      <div class="sg"><label for="pdfContentMode">PDF content</label>
+        <select id="pdfContentMode" aria-describedby="pdfContentHint"><option value="preserve">Preserve PDF pages</option><option value="images">Images (apply layout)</option></select></div>
+      <p class="print-size-hint" id="printSizeHint"></p>
+      <p class="print-size-hint" id="pdfContentHint" hidden></p>
+      <p class="print-size-hint" id="pdfExportNotice" hidden></p>
+    </div>
+    </div>
+
+    <div class="img-grid" id="imgGrid"></div>
+
+    <div class="convert-section" id="convertSection">
+      <div class="convert-heading">Ready to export</div>
+      <p id="convertSummary">—</p>
+      <p id="sizeEstimate" style="font-size:.78rem;margin-top:-.4rem"></p>
+      <div class="export-actions">
+        <button class="convert-btn" id="convertBtn" onclick="generatePDF()">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 1v9M4 7l4 4 4-4M2 13h12" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Generate PDF
+        </button>
+        <button type="button" class="quality-toggle" id="preserveQualityBtn" aria-pressed="false" aria-describedby="preserveQualityHint" onclick="togglePreserveQuality()">
+          <span>Preserve original quality</span>
+          <span class="quality-toggle-state" id="preserveQualityState" aria-hidden="true">Off</span>
+        </button>
+      </div>
+      <p class="quality-hint" id="preserveQualityHint">Keeps current image detail. PDFs may be larger; quality lost in earlier edits cannot be restored.</p>
+      <div class="prog-wrap" id="progWrap">
+        <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+        <div class="prog-lbl" id="progLbl">Processing…</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════ EDIT PDF PAGE ════════════════════ -->
+<div class="page" id="page-edit">
+  <div class="hero">
+    <h1>Edit your<br><em>PDF</em></h1>
+    <p>Arrange PDF pages while keeping their text and vectors. Image edits change a page into a picture; export details explain the limits.</p>
+  </div>
+  <div class="wrap" style="padding-top:0">
+    <!-- PDF loading indicator for edit tab -->
+    <div class="pdf-loading" id="pdfLoadingEdit">
+      <div class="spinner"></div>
+      <div class="pdf-loading-lbl" id="pdfLoadingEditLbl">Loading PDF…</div>
+      <div class="pdf-loading-sub" id="pdfLoadingEditSub">Rendering pages…</div>
+      <div class="pdf-prog-track"><div class="pdf-prog-fill" id="pdfProgFillEdit"></div></div>
+    </div>
+
+    <div class="drop-zone" id="pdfDropZone">
+      <input type="file" id="pdfFileInput" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple>
+      <div class="drop-icon">📄</div>
+      <h3>Drop a PDF here</h3>
+      <p>Reorder, delete, duplicate, rotate, crop, resize, and filter pages · Export as a new PDF when done</p>
+      <div class="browse-btn">Browse files</div>
+    </div>
+
+    <div id="importReportEdit" class="import-report" hidden role="status"></div>
+    <p class="resource-hint">Up to 200 pages · images up to 32 MB and 16 megapixels · PDFs up to 50 MB. The working-file budget is 128 MB; image exports are limited to 64 megapixels in total.</p>
+    <!-- Merge PDF section -->
+    <div class="merge-section" id="mergePdfSection" style="display:none">
+      <input type="file" id="mergePdfInput" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple onchange="handleMergeFiles(this.files)">
+      <div style="font-size:1.2rem">📎</div>
+      <div style="flex:1">
+        <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700;font-size:.82rem">Merge another PDF</div>
+        <p>Click to append pages from another PDF or images</p>
+      </div>
+      <button class="btn btn-blue merge-btn">+ Merge PDF / Images</button>
+    </div>
+  </div>
+
+  <!-- #settingsBar is re-mounted here while the Edit view is active -->
+  <div class="wrap" id="settingsMountEdit" style="padding-top:0;padding-bottom:0"></div>
+  <div class="wrap" style="padding-top:0;padding-bottom:0">
+    <div class="prog-wrap" id="progWrapEdit">
+      <div class="prog-track"><div class="prog-fill" id="progFillEdit"></div></div>
+      <div class="prog-lbl" id="progLblEdit">Processing…</div>
+    </div>
+  </div>
+
+  <div class="pdf-editor-wrap" id="pdfEditorWrap" style="display:none">
+    <div class="pdf-pages-panel">
+      <h3>
+        <span>Pages <span class="badge-count" id="pdfPageCount">0</span></span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-blue" style="font-size:.75rem;padding:5px 10px" onclick="document.getElementById('pdfFileInput').click()">+ Add</button>
+          <button class="btn" style="font-size:.75rem;padding:5px 10px" onclick="document.getElementById('mergePdfInput').click()">Merge PDF</button>
+          <button class="btn btn-primary" id="editExportBtn" style="font-size:.75rem;padding:5px 10px" onclick="exportEditedPDF()">Export PDF</button>
+        </div>
+      </h3>
+      <div class="pdf-page-list" id="pdfPageList"></div>
+    </div>
+
+    <div class="pdf-detail-panel">
+      <h3>Selected page</h3>
+      <div class="detail-preview" id="detailPreview" onclick="openLightbox()">
+        <span style="color:var(--muted);font-size:.8rem">Select a page</span>
+      </div>
+      <div class="detail-actions" id="detailActions" style="display:none">
+        <button class="btn btn-blue" onclick="openEditorFor(selectedPdfPage)">✏️ Edit this page</button>
+        <button class="btn" onclick="duplicatePage(selectedPdfPage)">⧉ Duplicate</button>
+        <button class="btn" onclick="rotatePage(selectedPdfPage, 90)">↻ Rotate 90°</button>
+        <button class="btn" onclick="rotatePage(selectedPdfPage, -90)">↺ Rotate –90°</button>
+        <button class="btn" onclick="movePage(selectedPdfPage, -1)">↑ Move up</button>
+        <button class="btn" onclick="movePage(selectedPdfPage, 1)">↓ Move down</button>
+        <button class="btn btn-red" onclick="deletePage(selectedPdfPage)">🗑 Delete page</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ EDITOR MODAL ════════════════════ -->
+<div class="modal-bg" id="editorModal" role="dialog" aria-modal="true" aria-labelledby="editorModalTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="editorModalTitle">Edit image</h2>
+      <button class="modal-close" id="editorCloseBtn" aria-label="Close editor" onclick="closeEditor()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="editor-pdf-warning" id="editorPdfWarning" hidden>Saving image edits turns this PDF page into a picture: its searchable text, vectors, links, forms, and accessibility content are lost. Use the page-list rotation controls to keep native PDF content. Saving without changes preserves the page.</p>
+      <div class="editor-tabs">
+        <button class="et on" onclick="switchEditorTab('rotate')">↻ Rotate</button>
+        <button class="et" onclick="switchEditorTab('resize')">⤢ Resize</button>
+        <button class="et" onclick="switchEditorTab('crop')">✂ Crop</button>
+        <button class="et" onclick="switchEditorTab('flip')">⇌ Flip</button>
+        <button class="et" onclick="switchEditorTab('filters')">🎨 Filters</button>
+      </div>
+
+      <div class="editor-preview">
+        <canvas id="previewCanvas"></canvas>
+      </div>
+
+      <!-- ROTATE -->
+      <div class="ctrl-group et-panel" id="panel-rotate">
+        <h4>Rotation</h4>
+        <div class="ctrl-row">
+          <button class="btn" onclick="quickRotate(-90)">↺ −90°</button>
+          <button class="btn" onclick="quickRotate(90)">↻ +90°</button>
+          <button class="btn" onclick="quickRotate(180)">↻ 180°</button>
+          <button class="btn" onclick="quickRotate(0, true)">Reset</button>
+        </div>
+        <div class="ctrl-row" style="margin-top:.7rem">
+          <span style="font-size:.8rem;color:var(--muted)">Custom angle:</span>
+          <input class="angle-input" type="number" id="customAngle" value="0" min="-360" max="360">
+          <button class="btn btn-blue" onclick="applyCustomAngle()">Apply</button>
+        </div>
+        <div style="font-size:.78rem;color:var(--muted);margin-top:.5rem">Current: <strong id="currentAngleDisplay">0°</strong></div>
+      </div>
+
+      <!-- RESIZE -->
+      <div class="ctrl-group et-panel" id="panel-resize" style="display:none">
+        <h4>Resize</h4>
+        <div class="size-row">
+          <div class="sg"><label for="resW">Width (px)</label><input type="number" id="resW" min="1" max="8192" step="1" aria-describedby="resizeLimitHint" oninput="onResizeInput('w')"></div>
+          <div class="sg"><label for="resH">Height (px)</label><input type="number" id="resH" min="1" max="8192" step="1" aria-describedby="resizeLimitHint" oninput="onResizeInput('h')"></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:1px">
+            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em">Lock AR</label>
+            <input type="checkbox" id="lockAR" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--blue)">
+          </div>
+        </div>
+        <div class="size-info" id="sizeInfo"></div>
+        <p class="resource-hint" id="resizeLimitHint">Resize and rotated output must fit within 16 megapixels and 8,192 pixels per side. Changes that exceed these limits are rejected.</p>
+        <div style="display:flex;gap:8px;margin-top:.8rem;flex-wrap:wrap">
+          <button class="btn btn-blue" onclick="applyResize()">Apply resize</button>
+          <button class="btn" onclick="resetResize()">Reset to original</button>
+          <button class="btn" onclick="setResizePercent(50)">50%</button>
+          <button class="btn" onclick="setResizePercent(75)">75%</button>
+          <button class="btn" onclick="setResizePercent(150)">150%</button>
+          <button class="btn" onclick="setResizePercent(200)">200%</button>
+        </div>
+      </div>
+
+      <!-- CROP -->
+      <div class="ctrl-group et-panel" id="panel-crop" style="display:none">
+        <h4>Crop</h4>
+        <div class="crop-hint">👆 Drag on the image to select the crop area (touch supported), then click Apply.</div>
+        <div class="crop-coords">
+          <div class="sg"><label>X (left)</label><input type="number" id="cropX" value="0" min="0" oninput="updateCropFromInputs()"></div>
+          <div class="sg"><label>Y (top)</label><input type="number" id="cropY" value="0" min="0" oninput="updateCropFromInputs()"></div>
+          <div class="sg"><label>Width</label><input type="number" id="cropW" value="100" min="1" oninput="updateCropFromInputs()"></div>
+          <div class="sg"><label>Height</label><input type="number" id="cropH" value="100" min="1" oninput="updateCropFromInputs()"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:.8rem;flex-wrap:wrap">
+          <button class="btn btn-blue" onclick="applyCrop()">Apply crop</button>
+          <button class="btn" onclick="resetCrop()">Reset</button>
+          <button class="btn" onclick="setCropPreset(1,1)">1:1</button>
+          <button class="btn" onclick="setCropPreset(4,3)">4:3</button>
+          <button class="btn" onclick="setCropPreset(16,9)">16:9</button>
+          <button class="btn" onclick="setCropPreset(3,4)">3:4</button>
+        </div>
+      </div>
+
+      <!-- FLIP -->
+      <div class="ctrl-group et-panel" id="panel-flip" style="display:none">
+        <h4>Flip</h4>
+        <div class="flip-row">
+          <button class="btn" onclick="applyFlip('h')">⇌ Flip Horizontal</button>
+          <button class="btn" onclick="applyFlip('v')">⇅ Flip Vertical</button>
+          <button class="btn" onclick="applyFlip('both')">↔ Flip Both</button>
+          <button class="btn btn-red" onclick="resetFlip()">Reset flip</button>
+        </div>
+      </div>
+
+      <!-- FILTERS -->
+      <div class="ctrl-group et-panel" id="panel-filters" style="display:none">
+        <h4>Filters &amp; Adjustments</h4>
+        <div class="ctrl-row" style="margin-bottom:.9rem">
+          <span style="font-size:.78rem;color:var(--muted);margin-right:2px">Presets:</span>
+          <button class="btn" onclick="applyFilterPreset('document')" title="High contrast B&amp;W for scanned text">📄 Document</button>
+          <button class="btn" onclick="applyFilterPreset('grayscale')">◐ B&amp;W</button>
+          <button class="btn" onclick="applyFilterPreset('vivid')">🌈 Vivid</button>
+          <button class="btn" onclick="applyFilterPreset('soften')">☁ Soften</button>
+        </div>
+        <div class="filter-grid">
+          <div class="filter-item">
+            <label>Brightness <span class="filter-val" id="fv-brightness">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-brightness" oninput="updateFilter('brightness',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label>Contrast <span class="filter-val" id="fv-contrast">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-contrast" oninput="updateFilter('contrast',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label>Saturation <span class="filter-val" id="fv-saturate">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-saturate" oninput="updateFilter('saturate',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label>Blur <span class="filter-val" id="fv-blur">0px</span></label>
+            <input type="range" min="0" max="20" value="0" id="f-blur" oninput="updateFilter('blur',this.value,'px')">
+          </div>
+          <div class="filter-item">
+            <label>Grayscale <span class="filter-val" id="fv-grayscale">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-grayscale" oninput="updateFilter('grayscale',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label>Sepia <span class="filter-val" id="fv-sepia">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-sepia" oninput="updateFilter('sepia',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label>Hue Rotate <span class="filter-val" id="fv-hue-rotate">0°</span></label>
+            <input type="range" min="0" max="360" value="0" id="f-hue-rotate" oninput="updateFilter('hue-rotate',this.value,'deg')">
+          </div>
+          <div class="filter-item">
+            <label>Invert <span class="filter-val" id="fv-invert">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-invert" oninput="updateFilter('invert',this.value,'%')">
+          </div>
+        </div>
+        <div style="margin-top:.8rem;display:flex;gap:8px">
+          <button class="btn btn-blue" onclick="applyFilters()">Apply filters</button>
+          <button class="btn btn-red" onclick="resetFilters()" title="Reset the sliders; Revert all changes restores original pixels">Reset sliders</button>
+        </div>
+      </div>
+
+      <p class="resource-hint" id="applyAllHint">Apply to all adds this session's filter steps to each page and applies rotation/flip changes to its existing orientation. Crop and resize affect the current page only. Revert all changes restores the original pixels and clears the filter steps.</p>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);flex-wrap:wrap">
+        <button class="btn btn-red" onclick="revertAll()">Revert all changes</button>
+        <button class="btn btn-blue" id="applyAllBtn" onclick="saveEdits(true)"
+                aria-describedby="applyAllHint" title="Add the chosen filters and rotation/flip changes while keeping each page's existing effects">⇉ Apply to all</button>
+        <button class="btn btn-primary" id="saveChangesBtn" onclick="saveEdits()">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Full size preview" onclick="closeLightbox()">
+  <button class="lightbox-close" id="lightboxCloseBtn" aria-label="Close preview" onclick="closeLightbox()">✕</button>
+  <!-- Clicking the image itself used to dismiss the lightbox. -->
+  <img id="lightboxImg" src="" alt="Full size page preview" onclick="event.stopPropagation()">
+  <div class="lightbox-caption" id="lightboxCaption"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<footer>PhotoPDF Studio · Built for the browser · Your files never leave your device</footer>
+
+<script src="js/raster-limits.js"></script>
+<script src="js/file-intake.js"></script>
+<script src="js/pdf-loader.js"></script>
+<script src="js/pdf-images.js"></script>
+<script src="js/pdf-layout.js"></script>
+<script src="js/pdf-preserve.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pdf-import.js"></script>
+<script src="js/import-queue.js"></script>
+<script src="js/editor.js"></script>
+</body>
+</html>

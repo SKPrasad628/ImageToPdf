@@ -1,0 +1,57 @@
+/* Self-hosted fonts; their SIL Open Font Licenses are in vendor/fonts/. */
+@font-face {
+  font-family: 'Cinzel';
+  src: url('../vendor/fonts/Cinzel-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cinzel';
+  src: url('../vendor/fonts/Cinzel-Medium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cinzel';
+  src: url('../vendor/fonts/Cinzel-SemiBold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cinzel';
+  src: url('../vendor/fonts/Cinzel-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('../vendor/fonts/EBGaramond-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('../vendor/fonts/EBGaramond-Medium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('../vendor/fonts/EBGaramond-SemiBold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('../vendor/fonts/EBGaramond-Italic.ttf') format('truetype');
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}

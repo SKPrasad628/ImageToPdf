@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#03045e">
+<meta name="description" content="Gather images and PDF pages, arrange their order, and forge a single PDF. A private, browser-based print desk.">
+<title>Page Forge — Images into pages</title>
+<script src="vendor/jspdf/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/page-forge.css">
+</head>
+<body class="forge-app hints-off">
+<a class="skip-link" href="#dropZone">Skip to the workspace</a>
+<header class="site-header">
+  <a class="forge-brand" href="#forgeHero" aria-label="Page Forge home"><span class="forge-sigil" aria-hidden="true"></span><span>Page Forge</span></a>
+  <nav class="forge-nav" aria-label="Main navigation">
+    <a href="#forgeHero">Home</a>
+    <a href="#dropZone" class="active" aria-current="page">Image to PDF</a>
+    <button type="button" onclick="openForgeDialog('toolsDialog')">Tools</button>
+    <button type="button" onclick="openForgeDialog('aboutDialog')">About</button>
+  </nav>
+  <div class="header-right"><span class="local-note">Private by design</span><button type="button" class="dark-toggle" id="darkToggle" aria-label="Use deeper night colors" aria-pressed="false" onclick="toggleDark()">◐</button></div>
+</header>
+
+<main class="page active" id="page-convert">
+  <section class="forge-hero" id="forgeHero" aria-labelledby="forgeTitle">
+    <div class="hero-orbit" aria-hidden="true"></div>
+    <p class="eyebrow">The art of binding</p>
+    <h1 id="forgeTitle">Bind thy images<br><em>into a tome.</em></h1>
+    <p>Gather your images, arrange their order,<br>and forge them into a single PDF.</p>
+  </section>
+
+  <div class="forge-shell">
+    <section class="forge-result" id="forgeResult" hidden aria-labelledby="successTitle">
+      <div class="success" id="successMsg"><span class="result-sigil" aria-hidden="true">◇</span><div><p class="eyebrow">The binding is complete</p><h2 id="successTitle">Thy tome is forged</h2><p id="successDetail"></p></div></div>
+      <section id="exportReport" class="export-report" hidden aria-live="polite" aria-label="Export result"></section>
+      <div class="result-actions"><button type="button" class="btn btn-primary" id="downloadAgainBtn" onclick="downloadLastForge()" hidden>Download PDF</button><button type="button" class="btn" onclick="returnToForgePages()">Rearrange pages</button><button type="button" class="btn" onclick="startAnotherForge()">Create another tome</button></div>
+    </section>
+
+    <div class="pdf-loading" id="pdfLoading" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><div class="pdf-loading-lbl" id="pdfLoadingLbl">Gathering the pages…</div><div class="pdf-loading-sub" id="pdfLoadingSub">Reading your file…</div><div class="pdf-prog-track"><div class="pdf-prog-fill" id="pdfProgFill"></div></div></div>
+
+    <section class="drop-zone" id="dropZone" aria-labelledby="uploadTitle">
+      <input type="file" id="fileInput" aria-label="Choose images or PDFs" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple>
+      <div class="drop-inner"><span class="upload-sigil" aria-hidden="true">↑</span><div><h2 id="uploadTitle">Drop thy images here</h2><p>or choose files from your device</p></div><span class="browse-btn">Choose files <span aria-hidden="true">↗</span></span></div>
+      <p class="upload-formats">JPG · PNG · WEBP · PDF <span>and more</span></p>
+    </section>
+    <div id="importReport" class="import-report" hidden role="status"></div>
+    <details class="file-requirements"><summary>File requirements &amp; privacy</summary><p>Your files are processed in this browser. Page Forge does not upload your images or PDFs.</p><ul><li>JPEG, PNG, WebP, GIF, and BMP: up to 32 MiB, 16 megapixels, and 8,192 pixels per side.</li><li>PDFs: up to 50 MiB. A document may contain up to 200 pages.</li><li>Animated images become a still picture. TIFF, SVG, and unverifiable image formats need conversion first.</li><li>Working files and history share a 128 MiB budget. Raster exports are limited to 64 megapixels in total and 128 MiB of output.</li></ul></details>
+
+    <div class="undo-bar" id="undoBar" aria-label="Document history"><button type="button" id="undoBtn" onclick="undo()" disabled>↶ Undo</button><button type="button" id="redoBtn" onclick="redo()" disabled>↷ Redo</button><button type="button" id="discardHistoryBtn" onclick="discardUndoHistory()">Free undo history</button><span id="undoLabel" role="status"></span></div>
+    <div class="kbd-hints" id="kbdHints"><span class="kbd"><kbd>Del</kbd> remove active or checked pages</span><span class="kbd"><kbd>←</kbd><kbd>→</kbd> preview pages</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</span><button type="button" class="kbd-dismiss" aria-label="Hide keyboard shortcuts" onclick="toggleHints(false)">×</button></div>
+
+    <div class="toolbar" id="toolbar">
+      <div class="tl"><span class="document-count"><span class="badge-count" id="countBadge">0</span> pages in your tome</span><button type="button" class="btn" onclick="document.getElementById('fileInput').click()">+ Add files</button><button type="button" class="btn" onclick="sortByName()">Sort A–Z</button><button type="button" class="btn" onclick="reverseOrder()">Reverse order</button></div>
+      <div class="tl"><button type="button" class="btn" id="selectAllBtn" onclick="toggleSelectAll()">Select all</button><button type="button" class="btn" id="rotateSelectionBtn" onclick="rotateAll(90)">Rotate all 90°</button><span id="selInfo" role="status"></span><button type="button" class="btn hints-show" onclick="toggleHints(true)">Shortcuts</button><button type="button" class="btn btn-red" onclick="clearAll()">Clear document</button></div>
+    </div>
+
+    <div class="forge-workspace" id="forgeWorkspace">
+      <aside class="forge-pages" aria-label="Document pages"><div class="panel-heading"><h2>Your pages</h2><span>Drag to arrange</span></div><div class="img-grid" id="imgGrid"></div></aside>
+      <section class="forge-proof" aria-labelledby="proofTitle">
+        <div class="proof-heading"><h2 id="proofTitle">The print desk</h2><span>Output preview</span></div>
+        <div class="proof-dimension" id="forgeDimensions">210 × 297 mm</div>
+        <div class="proof-stage"><div class="forge-paper" id="forgePaper" aria-busy="false"><canvas id="forgePreviewCanvas" role="img" aria-label="PDF output preview" hidden></canvas><p id="forgePreviewEmpty">Add images to preview your PDF</p></div></div>
+        <div class="proof-caption"><p id="forgePreviewLabel" aria-live="polite">Your manuscript awaits</p><p id="forgePlacementNote"></p></div>
+        <div class="proof-actions" aria-label="Active page actions"><button type="button" class="btn" data-page-action="edit" onclick="editForgePage()">Edit page</button><button type="button" class="btn" data-page-action="rotate" onclick="rotateForgePage()">↻ Rotate 90°</button><button type="button" class="btn" data-page-action="duplicate" onclick="duplicateForgePage()">Duplicate</button><button type="button" class="btn" data-page-action="earlier" onclick="moveForgePage(-1)">↑ Earlier</button><button type="button" class="btn" data-page-action="later" onclick="moveForgePage(1)">↓ Later</button><button type="button" class="btn" data-page-action="view" onclick="viewForgePage()">Full size</button></div>
+      </section>
+      <aside id="settingsMountConvert" class="binding-panel" aria-label="PDF binding options">
+        <div class="settings-bar" id="settingsBar"><h2>Binding options</h2><p class="binding-scope">For every image page</p>
+          <fieldset class="binding-section"><legend>The document</legend><div class="sg"><label for="filename">PDF filename</label><input type="text" id="filename" value="my-photos" spellcheck="false" autocomplete="off"></div><div class="sg"><label for="pageSize">Page size</label><select id="pageSize"><option value="a4">A4 · 210 × 297 mm</option><option value="letter">Letter · 8.5 × 11 in</option><option value="a3">A3 · 297 × 420 mm</option><option value="a5">A5 · 148 × 210 mm</option><option value="fit">Fit to image</option></select></div><div class="sg"><label for="orientation">Orientation</label><select id="orientation"><option value="auto">Auto per image</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></div></fieldset>
+          <fieldset class="binding-section"><legend>Paper &amp; placement</legend><div class="sg"><label for="margin">Margins on every edge (mm)</label><input type="number" id="margin" value="10" min="0" max="40" step="1"></div><div class="margin-presets" role="group" aria-label="Margin presets"><button type="button" class="btn" data-margin="0" onclick="setForgeMargin(0)">None</button><button type="button" class="btn" data-margin="10" onclick="setForgeMargin(10)">10 mm</button><button type="button" class="btn" data-margin="20" onclick="setForgeMargin(20)">20 mm</button></div><div class="sg"><label for="imgFit">Image fit</label><select id="imgFit"><option value="contain">Contain · full image</option><option value="fill">Fill · crop to margins</option><option value="actual">Print size · use DPI</option></select></div><div class="sg"><label for="quality">Image quality</label><select id="quality" aria-describedby="qualityModeHint"><option value="0.85" selected>Standard</option><option value="0.95">High</option><option value="1">Maximum JPEG quality</option><option value="0.72">Smaller file</option></select></div><p class="print-size-hint" id="qualityModeHint">For lossless output of current image detail, use Preserve original quality beside Forge PDF.</p></fieldset>
+          <details class="binding-advanced" id="advancedBinding"><summary>Advanced binding options</summary><fieldset class="binding-section"><legend>Print scale</legend><div class="sg"><label for="printDpi">Photo print DPI</label><input type="number" id="printDpi" value="300" min="1" max="2400" step="1" aria-describedby="printSizeHint"></div><div class="sg"><label for="oversize">If print size is too large</label><select id="oversize" aria-describedby="printSizeHint"><option value="shrink">Scale down to fit</option><option value="crop">Keep size and crop</option></select></div><p class="print-size-hint" id="printSizeHint"></p></fieldset></details>
+          <fieldset class="binding-section" id="pdfContentGroup" hidden><legend>Imported PDF pages</legend><div class="sg"><label for="pdfContentMode">PDF content</label><select id="pdfContentMode" aria-describedby="pdfContentHint"><option value="preserve">Preserve PDF pages</option><option value="images">Images · apply layout</option></select></div><p class="print-size-hint" id="pdfContentHint" hidden></p></fieldset><p class="print-size-hint" id="pdfExportNotice" hidden></p>
+        </div>
+      </aside>
+    </div>
+
+    <section class="convert-section export-dock" id="convertSection" aria-label="Forge your PDF">
+      <div class="export-meta"><p class="eyebrow">The final inscription</p><h2 class="convert-heading">Ready to forge</h2><p id="convertSummary">Your pages, bound together.</p><p id="sizeEstimate"></p></div>
+      <div class="export-controls"><div class="export-actions"><button type="button" class="quality-toggle" id="preserveQualityBtn" aria-pressed="false" aria-describedby="preserveQualityHint" onclick="togglePreserveQuality()"><span>Preserve original quality</span><span class="quality-toggle-state" id="preserveQualityState" aria-hidden="true">Off</span></button><button type="button" class="convert-btn" id="convertBtn" onclick="generatePDF()"><span aria-hidden="true">◇</span><span>Forge PDF</span><span aria-hidden="true">→</span></button></div><p class="quality-hint" id="preserveQualityHint">Keeps current image detail without added lossy compression. Larger files; earlier quality loss cannot be restored.</p></div>
+      <div class="prog-wrap" id="progWrap" role="status" aria-live="polite"><span class="binding-ring" aria-hidden="true"></span><div class="prog-track"><div class="prog-fill" id="progFill"></div></div><div class="prog-lbl" id="progLbl">Binding the pages…</div></div>
+    </section>
+  </div>
+</main>

@@ -1,0 +1,5 @@
+{
+  "original": "Original PDF bytes preserved exactly, including existing forms, links, bookmarks, tags, signatures and encryption.",
+  "reordered": "Native PDF text, vectors and page objects retained. Changes invalidate digital signatures; forms, bookmarks, internal links and accessibility tags may no longer work correctly after page changes.",
+  "mixed": "Native PDF text and vectors retained on unedited pages. Merging does not preserve document-level forms, bookmarks, accessibility tags or signatures reliably; some links and annotations may not work. Edited PDF pages are exported as images."
+}

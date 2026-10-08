@@ -1,0 +1,20 @@
+<footer class="forge-footer"><div><a class="forge-brand" href="#forgeHero"><span class="forge-sigil" aria-hidden="true"></span>Page Forge</a><p>Forged for those who bind images into pages.</p></div><nav aria-label="Footer"><button type="button" onclick="openForgeDialog('privacyDialog')">Privacy</button><button type="button" onclick="openForgeDialog('aboutDialog')">About</button><span>Made for your browser. Kept on your device.</span></nav></footer>
+
+<dialog class="forge-dialog" id="aboutDialog" aria-labelledby="aboutTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close about">×</button></form><p class="eyebrow">The forgotten archive</p><h2 id="aboutTitle">About Page Forge</h2><p>A quiet place to gather photos and PDF pages, arrange a document, and check the paper before you forge it.</p><p>Page Forge runs in your browser. Its blue-and-gold identity uses original geometric ornament inspired by ancient archives and celestial instruments.</p><p>Paper size, margins, placement, and quality stay in your hands. Untouched PDF pages can retain their text and vectors; the binding options explain when image editing or document changes affect preservation.</p><form method="dialog"><button class="btn btn-primary">Return to the archive</button></form></div></dialog>
+<dialog class="forge-dialog" id="privacyDialog" aria-labelledby="privacyTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close privacy information">×</button></form><p class="eyebrow">Your work stays yours</p><h2 id="privacyTitle">Privacy, plainly</h2><p>Your selected images, PDFs, and generated output are processed locally in this browser. Page Forge does not send them to an upload service.</p><p>Layout preferences and appearance are saved in browser storage. Open documents and edit history stay in the current tab; closing or reloading it discards unfinished work. Your downloaded PDF remains wherever your browser saves downloads.</p><p>The fonts and PDF libraries are served with the app. A hosting provider may keep ordinary page-request logs; those requests do not contain your selected files.</p><form method="dialog"><button class="btn btn-primary">Back to Page Forge</button></form></div></dialog>
+<dialog class="forge-dialog" id="toolsDialog" aria-labelledby="toolsTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close tools">×</button></form><p class="eyebrow">Tools of the archive</p><h2 id="toolsTitle">Shape every page</h2><ul><li><strong>Arrange:</strong> drag pages, or use Earlier and Later beside the preview.</li><li><strong>Edit:</strong> rotate, crop, resize, flip, and adjust images in the page editor.</li><li><strong>Combine:</strong> add images and PDFs to the same document.</li><li><strong>Bind:</strong> set paper size, margins, image placement, and quality.</li></ul><div class="result-actions"><button type="button" class="btn btn-primary" onclick="document.getElementById('toolsDialog').close();document.getElementById('fileInput').click()">Add files</button><button type="button" class="btn" id="toolsEditBtn" onclick="document.getElementById('toolsDialog').close();editForgePage()" disabled>Edit active page</button></div></div></dialog>
+
+<script src="js/raster-limits.js"></script>
+<script src="js/file-intake.js"></script>
+<script src="js/pdf-loader.js"></script>
+<script src="js/pdf-images.js"></script>
+<script src="js/pdf-layout.js"></script>
+<script src="js/pdf-preserve.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pdf-import.js"></script>
+<script src="js/import-queue.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/forge-preview.js"></script>
+<script src="js/forge-ui.js"></script>
+</body>
+</html>
