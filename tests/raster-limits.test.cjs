@@ -67,21 +67,53 @@ for (const value of [0, -1, NaN, Infinity, '600', undefined]) {
   });
 }
 
-test('file preflight rejects excessive encoded image and PDF bytes', () => {
+test('file preflight admits large source images while keeping separate working and PDF bounds', () => {
   const { limits } = harness();
   const raster = { kind: 'image', format: 'png', width: 4000, height: 4000 };
   assert.doesNotThrow(() => limits.preflightFile({ name: 'photo.png', size: 32 * MiB }, raster));
-  assert.throws(() => limits.preflightFile({ name: 'photo.png', size: 32 * MiB + 1 }, raster), safetyError);
+  assert.doesNotThrow(() => limits.preflightFile({ name: 'photo.png', size: 256 * MiB }, raster));
+  assert.throws(() => limits.preflightFile({ name: 'photo.png', size: 256 * MiB + 1 }, raster), safetyError);
   assert.doesNotThrow(() => limits.preflightFile({ name: 'pages.pdf', size: 50 * MiB }, { kind: 'pdf' }));
   assert.throws(() => limits.preflightFile({ name: 'pages.pdf', size: 50 * MiB + 1 }, { kind: 'pdf' }), safetyError);
 });
 
-test('file preflight rejects unknown and oversized image dimensions before decode', () => {
+test('file preflight accepts resizable sources and rejects unknown or excessive source dimensions', () => {
   const { limits } = harness();
   const file = { name: 'untrusted.png', size: 100 };
   assert.throws(() => limits.preflightFile(file, { kind: 'image', format: 'png' }), safetyError);
   assert.throws(() => limits.preflightFile(file, { kind: 'image', format: 'png', width: 100000, height: 100000 }), safetyError);
-  assert.throws(() => limits.preflightFile(file, { kind: 'image', format: 'png', width: 4000, height: 4001 }), safetyError);
+  assert.doesNotThrow(() => limits.preflightFile(file, { kind: 'image', format: 'png', width: 4000, height: 4001 }));
+  assert.doesNotThrow(() => limits.preflightFile(file, { kind: 'image', format: 'png', width: 16000, height: 16000 }));
+  assert.throws(() => limits.preflightFile(file, { kind: 'image', format: 'png', width: 16000, height: 16001 }), safetyError);
+});
+
+test('large-image plans fit the maximum working resolution without stretching or upscaling', () => {
+  const { limits } = harness();
+  for (const [width, height] of [[12000, 8000], [8000, 12000], [65535, 10], [4001, 4000], [16000, 16000], [100, 80]]) {
+    const plan = limits.planImageImport({ size: 100 }, { kind: 'image', width, height });
+    assert.ok(plan.width <= width && plan.height <= height);
+    assert.doesNotThrow(() => limits.assertRaster(plan.width, plan.height));
+    assert.ok(Math.abs(plan.width / plan.height - width / height) <= (width / height + 1) / plan.height);
+    if (width * height > 16000000 || width > 8192 || height > 8192) {
+      assert.equal(plan.needsNormalization, true);
+      assert.ok(plan.width * plan.height > 15980000 || plan.width === 8192 || plan.height === 8192);
+    } else assert.equal(plan.needsNormalization, false);
+  }
+});
+
+test('large-image plans use display orientation and available encoded-byte budget', () => {
+  const { limits } = harness();
+  const rotated = limits.planImageImport({ size: 100 }, { kind: 'image', width: 12000, height: 8000, displayWidth: 8000, displayHeight: 12000 });
+  assert.ok(rotated.width < rotated.height);
+  assert.equal(rotated.sourceWidth, 8000);
+  const bigBytes = limits.planImageImport({ size: 33 * MiB }, { kind: 'image', width: 100, height: 80 });
+  assert.equal(bigBytes.needsNormalization, true);
+  limits.reserveBytes('history', 120 * MiB);
+  const available = limits.planImageImport({ size: 10 * MiB }, { kind: 'image', width: 100, height: 80 });
+  assert.equal(available.maxBytes, 8 * MiB - 256 * 1024);
+  assert.equal(available.needsNormalization, true);
+  limits.reserveBytes('full', 8 * MiB);
+  assert.throws(() => limits.planImageImport({ size: 100 }, { kind: 'image', width: 100, height: 80 }), /working-file limit/);
 });
 
 test('page admission accounts for existing pages and rejects invalid counts', () => {

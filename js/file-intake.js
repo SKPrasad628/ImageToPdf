@@ -14,6 +14,66 @@
   const ascii = (bytes, start, count) => String.fromCharCode(...bytes.subarray(start, start + count));
   const uint24le = (bytes, start) => bytes[start] | bytes[start + 1] << 8 | bytes[start + 2] << 16;
 
+  function tiffOrientation(bytes, start, end) {
+    // Only IFD0's single SHORT orientation value is needed. Do not follow IFD
+    // chains, thumbnail pointers, or offsets outside this bounded metadata block.
+    if (end > bytes.length || start + 8 > end) return null;
+    const order = ascii(bytes, start, 2);
+    if (order !== 'II' && order !== 'MM') return null;
+    const little = order === 'II';
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint16(start + 2, little) !== 42) return null;
+    const offset = view.getUint32(start + 4, little);
+    if (offset < 8 || offset > end - start - 2) return null;
+    const directory = start + offset;
+    const count = view.getUint16(directory, little);
+    // A complete IFD includes a four-byte next-IFD pointer. This also bounds
+    // iteration by the header's actual length rather than an untrusted count.
+    if (count > Math.floor((end - directory - 6) / 12)) return null;
+    for (let index = 0; index < count; index++) {
+      const entry = directory + 2 + index * 12;
+      if (view.getUint16(entry, little) !== 0x0112) continue;
+      if (view.getUint16(entry + 2, little) !== 3 || view.getUint32(entry + 4, little) !== 1) return null;
+      const value = view.getUint16(entry + 8, little);
+      return value >= 1 && value <= 8 ? value : null;
+    }
+    return null;
+  }
+
+  function imageOrientation(bytes, format) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (format === 'jpeg') {
+      for (let offset = 2; offset + 3 < bytes.length;) {
+        if (bytes[offset++] !== 0xff) break;
+        while (offset < bytes.length && bytes[offset] === 0xff) offset++;
+        const marker = bytes[offset++];
+        if (marker === 0xda || marker === 0xd9) break;
+        if (marker === 0x01 || marker === 0xd8 || marker >= 0xd0 && marker <= 0xd7) continue;
+        if (offset + 2 > bytes.length) break;
+        const length = view.getUint16(offset);
+        if (length < 2 || length > bytes.length - offset) break;
+        if (marker === 0xe1 && length >= 16 && ascii(bytes, offset + 2, 6) === 'Exif\0\0') {
+          const value = tiffOrientation(bytes, offset + 8, offset + length);
+          if (value !== null) return value;
+        }
+        offset += length;
+      }
+    }
+    if (format === 'png') {
+      for (let offset = 8; offset + 12 <= bytes.length;) {
+        const length = view.getUint32(offset), type = ascii(bytes, offset + 4, 4);
+        if (length > bytes.length - offset - 12) break;
+        if (type === 'eXIf') {
+          const value = tiffOrientation(bytes, offset + 8, offset + 8 + length);
+          if (value !== null) return value;
+        }
+        if (type === 'IEND') break;
+        offset += length + 12;
+      }
+    }
+    return 1;
+  }
+
   function dimensions(bytes, format) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (format === 'png' && bytes.length >= 24 && ascii(bytes, 12, 4) === 'IHDR') {
@@ -104,8 +164,15 @@
     if (!format) {
       return { kind: 'unsupported', format: 'unknown', reason: 'Unsupported format. Use JPEG, PNG, WebP, GIF, BMP, or PDF.' };
     }
+    const raster = dimensions(header, detected);
+    const orientation = imageOrientation(header, detected);
+    const display = Number.isSafeInteger(raster.width) && raster.width > 0 &&
+      Number.isSafeInteger(raster.height) && raster.height > 0
+      ? { displayWidth: orientation >= 5 ? raster.height : raster.width,
+          displayHeight: orientation >= 5 ? raster.width : raster.height } : {};
     return { kind: format === 'pdf' ? 'pdf' : 'image', format, mime: FORMAT_MIMES[format],
-      signatureDetected: Boolean(detected), headerBytes: header.byteLength, ...dimensions(header, detected) };
+      signatureDetected: Boolean(detected), headerBytes: header.byteLength,
+      ...raster, orientation, ...display };
   }
 
   root.PhotoPdfFileIntake = Object.freeze({ classifyFile, HEADER_BYTES });

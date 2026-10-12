@@ -71,16 +71,6 @@
     return source;
   }
 
-  function materializeInheritedPageEntries(page, library) {
-    // Moving a page away from its original parent tree must not lose inherited
-    // resources, paper boxes, or rotation (PDF 32000, inheritable page entries).
-    for (const key of ['Resources', 'MediaBox', 'CropBox', 'Rotate']) {
-      const name = library.PDFName.of(key);
-      const value = page.node.getInheritableAttribute(name);
-      if (!page.node.get(name) && value) page.node.set(name, value);
-    }
-  }
-
   async function loadSource(library, source) {
     try {
       // ignoreEncryption is deliberately never used: it does not decrypt data.
@@ -97,14 +87,15 @@
     }
   }
 
-  async function addImagePage(document, image, options, library) {
+  async function addImagePage(document, image, options, library, existingPage) {
     if (typeof options.prepareImage !== 'function' || typeof options.computeLayout !== 'function') {
       throw preservationError('The image export helpers are unavailable. Please reload the page.');
     }
     const rendered = await options.prepareImage(image, options.imageOptions || {});
     if (!rendered) throw preservationError(`Could not decode “${image.name || 'this image'}”. No incomplete PDF was exported.`);
     const layout = options.computeLayout(image, rendered, options.settings || {});
-    const page = document.addPage([layout.page.width * POINTS_PER_MM, layout.page.height * POINTS_PER_MM]);
+    const page = existingPage || document.addPage([layout.page.width * POINTS_PER_MM, layout.page.height * POINTS_PER_MM]);
+    if (existingPage) page.setSize(layout.page.width * POINTS_PER_MM, layout.page.height * POINTS_PER_MM);
     const embedded = rendered.format === 'PNG'
       ? await document.embedPng(rendered.data) : await document.embedJpg(rendered.data);
     if (layout.clip) {
@@ -133,10 +124,15 @@
       throw preservationError('Add at least one page before exporting.');
     }
     const images = inputImages.map(image => ({ ...image,
-      filters: { ...(image.filters || {}) }, pdfSource: image.pdfSource ? { ...image.pdfSource } : undefined }));
+      filters: { ...(image.filters || {}) }, pdfSource: image.pdfSource ? { ...image.pdfSource } : undefined,
+      originalPdfSource: image.originalPdfSource ? { ...image.originalPdfSource } : undefined }));
     const sources = new Map();
     const getSource = options.getSource || (() => undefined);
     for (const image of images) if (image.pdfSource) sourceFor(image, sources, getSource);
+    // A raster-edited page still belongs to its source document. Retain that
+    // document's attachments and check signatures even if no native page remains.
+    for (const image of images) if (image.originalPdfSource) sourceFor({ ...image,
+      pdfSource: image.originalPdfSource, rotation: 0, flipH: false, flipV: false, filters: {} }, sources, getSource);
     const nativePages = images.filter(image => image.pdfSource).length;
     const imagePages = images.length - nativePages;
     const singleSource = nativePages === images.length && sources.size === 1;
@@ -153,57 +149,41 @@
     }
 
     const library = await loadLibrary();
-    let document;
-    let selectedPages = null;
     const loadedSources = new Map();
-    if (singleSource) {
-      document = await loadSource(library, source);
-      const originals = document.getPages().slice();
-      const seenIndices = new Set();
-      selectedPages = [];
-      for (const image of images) {
-        const index = image.pdfSource.pageIndex;
-        let page = originals[index];
-        if (seenIndices.has(index)) {
-          // Separate copy calls give each duplicated page its own page object.
-          [page] = await document.copyPages(document, [index]);
-        } else {
-          seenIndices.add(index);
-          materializeInheritedPageEntries(page, library);
-        }
-        selectedPages.push({ page, rotation: page.getRotation().angle + rotationOf(image) });
-      }
-      for (let index = document.getPageCount() - 1; index >= 0; index--) document.removePage(index);
-    } else {
-      document = await library.PDFDocument.create();
-      // Validate every native source before staging any output pages.
-      for (const [id, item] of sources) loadedSources.set(id, await loadSource(library, item));
+    // Validate all sources before staging output, then copy the connected graph
+    // with one shared reference map per source and independent duplicate maps.
+    for (const [id, item] of sources) {
+      loadedSources.set(id, { name: item.name || 'This PDF', document: await loadSource(library, item) });
     }
+    const core = window.PhotoPdfNativeCore;
+    if (!core) throw preservationError('The PDF structure tools are incomplete. Reload the complete app folder.');
+    const plan = await core.create(library, loadedSources, images, preservationError);
+    const document = plan.document;
 
     let scaledDownPages = 0, croppedPages = 0;
     for (let index = 0; index < images.length; index++) {
       const image = images[index];
       if (image.pdfSource) {
-        let page, rotation;
-        if (singleSource) ({ page, rotation } = selectedPages[index]);
-        else {
-          [page] = await document.copyPages(loadedSources.get(image.pdfSource.sourceId), [image.pdfSource.pageIndex]);
-          rotation = page.getRotation().angle + rotationOf(image);
-        }
+        const page = plan.entries[index].page;
+        const rotation = plan.entries[index].sourcePage.getRotation().angle + rotationOf(image);
         page.setRotation(library.degrees(((rotation % 360) + 360) % 360));
-        document.addPage(page);
       } else {
-        const layout = await addImagePage(document, image, options, library);
+        const layout = await addImagePage(document, image, options, library, plan.entries[index].page);
         if (layout.scaledDown) scaledDownPages++;
         if (layout.cropped) croppedPages++;
       }
       progress(index + 1, images.length);
     }
+    // Image/font embedders reserve references and materialize them on flush.
+    // Validate only after those objects exist, before returning any bytes.
+    await document.flush();
+    const report = core.finalize(plan);
     const bytes = await document.save({ updateFieldAppearances: false, addDefaultPage: false });
     return { bytes, exactOriginal: false, nativePages, imagePages, scaledDownPages, croppedPages,
-      notice: singleSource
-        ? 'Native PDF text, vectors and page objects retained. Changes invalidate digital signatures; forms, bookmarks, internal links and accessibility tags may no longer work correctly after page changes.'
-        : 'Native PDF text and vectors retained on unedited pages. Merging does not preserve document-level forms, bookmarks, accessibility tags or signatures reliably; some links and annotations may not work. Edited PDF pages are exported as images.' };
+      adjustments: report.adjustments.slice(),
+      notice: 'Native PDF content retained with rebuilt forms, bookmarks, links, attachments and supported accessibility structure where present. Signed and encrypted PDFs require untouched export; known unsafe or unsupported structures block native changes.' +
+        (imagePages ? ' Image-edited PDF pages and photos contain image content.' : '') +
+        (report.adjustments.length ? ' Changes: ' + report.adjustments.join(' ') : '') };
   }
 
   window.PhotoPdfPreservation = Object.freeze({

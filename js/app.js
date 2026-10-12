@@ -169,6 +169,7 @@ function loadImage(src, job) {
   return pending;
 }
 function forgetImage(src) { _imgCache.delete(src); }
+function clearImageCache() { _imgCache.clear(); }
 
 // JPEG quality for the final export, chosen by the user.
 function exportQuality() {
@@ -189,6 +190,7 @@ function _lightImages() {
     _id: img._id,
     _pageId: pageIdentity(img),
     name: img.name, size: img.size,
+    importAdjustment: img.importAdjustment ? { ...img.importAdjustment } : undefined,
     pdfPageSizeMm: copyPdfPageSize(img.pdfPageSizeMm),
     originalPdfPageSizeMm: copyPdfPageSize(img.originalPdfPageSizeMm),
     pdfSource: copyPdfSource(img.pdfSource),
@@ -278,6 +280,7 @@ function updateUndoUI() {
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
   bar.classList.toggle('on', images.length > 0 || canUndo || canRedo);
+  document.getElementById('toolbar')?.classList.toggle('on', images.length > 0 || canUndo || canRedo);
   undoBtn.disabled = !canUndo;
   redoBtn.disabled = !canRedo;
   const discard = document.getElementById('discardHistoryBtn');
@@ -368,13 +371,15 @@ function toggleDark() {
 // Strip characters Windows/macOS reject in filenames, plus path separators.
 function sanitizeFilename(name) {
   const cleaned = String(name || '')
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+    .replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '')
     .trim()
-    .replace(/(?:\.pdf\s*)+$/i, '')
+    .replace(/(?:\.pdf[.\s]*)+$/i, '')
     .replace(/^\.+/, '')
+    .replace(/[.\s]+$/, '')
     .trim()
     .slice(0, 120)
-    .replace(/(?:\.pdf\s*)+$/i, '')
+    .replace(/(?:\.pdf[.\s]*)+$/i, '')
+    .replace(/[.\s]+$/, '')
     .trim();
   return cleaned || 'my-photos';
 }
@@ -606,7 +611,7 @@ function render() {
     const coverScale = (rot === 90 || rot === 270) ? (3/4) : 1;
     card.innerHTML = `
       <div class="img-thumb-wrap">
-        <button type="button" class="page-preview-button" data-preview-page="${i}" aria-label="Preview page ${i+1}: ${label}" aria-pressed="${selectedConvertCard === i}" onclick="setForgeActive(${i})"><img src="${displaySrc}" alt="" draggable="false" style="transform:rotate(${img.rotation}deg) scale(${coverScale}) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})"></button>
+        <button type="button" class="page-preview-button" data-preview-page="${i}" aria-label="Preview page ${i+1}: ${label}" aria-pressed="${selectedConvertCard === i}" onclick="activateForgePage(${i})"><img src="${displaySrc}" alt="" draggable="false" style="transform:rotate(${img.rotation}deg) scale(${coverScale}) scaleX(${img.flipH?-1:1}) scaleY(${img.flipV?-1:1})"></button>
         <label class="page-check"><input type="checkbox" aria-label="Select page ${i+1}: ${label}" data-select-page="${i}" ${selectedSet.has(i) ? 'checked' : ''} onchange="toggleForgeSelection(${i},this.checked)"></label>
         ${rotLabel}
       </div>
@@ -617,7 +622,6 @@ function render() {
       <div class="img-footer">
         <span class="img-num"><span class="drag-handle" aria-hidden="true">⠿</span> ${String(i+1).padStart(2,'0')} <small>${img.pdfSource ? 'PDF' : 'IMG'}</small></span>
         <span class="page-viewing" data-viewing-page="${i}" ${selectedConvertCard === i ? '' : 'hidden'}>Viewing</span>
-        <button type="button" class="img-del" title="Remove page" aria-label="Remove ${label}" onclick="removeImage(${i})">×</button>
       </div>
       <div class="img-name" title="${esc(img.name)}">${esc(img.name)}</div>`;
 
@@ -625,6 +629,10 @@ function render() {
     // of scans can be picked without clicking each card's controls.
     card.addEventListener('click', (e) => {
       if (e.target.closest('button, input, label')) return;
+      if (window.PageForgeUI?.isSelecting() && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        toggleForgeSelection(i, !selectedSet.has(i));
+        return;
+      }
       if (e.ctrlKey || e.metaKey) {
         selectedSet.has(i) ? selectedSet.delete(i) : selectedSet.add(i);
       } else if (e.shiftKey && Number.isInteger(selectedConvertCard)) {
@@ -900,7 +908,7 @@ function updatePdfContentUI() {
   if (hint) {
     hint.hidden = !hasPdf;
     hint.textContent = preserve
-      ? 'Unedited PDF pages keep text and vectors. Their saved paper size and rotation are used; layout settings apply to photos and image-edited pages. An untouched single PDF downloads its original bytes. Edited or merged documents can lose forms, bookmarks, links, accessibility tags, attachments, encryption, and valid signatures.'
+      ? 'Unedited PDF pages keep native content and saved paper size. Forms, bookmarks, links, attachments and accessibility structure are rebuilt for the included pages. Links to removed pages are removed and reported. An untouched single PDF downloads its exact original bytes. Signed, encrypted or unsupported PDFs must stay untouched for native export; unsafe changes are blocked. Image edits replace that page’s native content.'
       : 'Image export turns PDF pages into pictures. Searchable text, vectors, links, forms, bookmarks, accessibility tags, attachments, encryption, and valid signatures are lost.';
     hint.classList.toggle('pdf-content-warning', hasPdf);
   }
@@ -1368,6 +1376,7 @@ function publishExportReport(report) {
   if (report.skipped.length) {
     lines.push('Pages not included:');
     report.skipped.forEach(page => lines.push(`Page ${page.position}: ${page.name} — ${page.reason}`));
+    lines.push('To include these pages, continue editing, replace or re-add the listed files, then forge the PDF again.');
   }
   element.textContent = lines.join('\n');
 }
@@ -1407,8 +1416,9 @@ async function generatePDF() {
     pdfSource: copyPdfSource(image.pdfSource), originalPdfSource: copyPdfSource(image.originalPdfSource) }));
   const exportSources = new Map();
   exportImages.forEach(image => {
-    const source = image.pdfSource;
-    if (source && pdfSources.has(source.sourceId)) exportSources.set(source.sourceId, pdfSources.get(source.sourceId));
+    for (const source of [image.pdfSource, image.originalPdfSource]) {
+      if (source && pdfSources.has(source.sourceId)) exportSources.set(source.sourceId, pdfSources.get(source.sourceId));
+    }
   });
   const sourceUrls = new Set(exportImages.map(image => image.src));
   sourceUrls.forEach(retainUrl);
@@ -1524,7 +1534,7 @@ async function generatePDF() {
   const sizeLabel = document.getElementById('sizeEstimate');
   if (sizeLabel) sizeLabel.textContent = `Last exported PDF: ${measuredSize}`;
   const successTitle = document.getElementById('successTitle');
-  if (successTitle) successTitle.textContent = partial ? 'Partial PDF saved — pages missing' : 'Thy tome is forged';
+  if (successTitle) successTitle.textContent = partial ? 'Partial PDF saved — pages missing' : 'Your PDF is ready';
   const successMessage = document.getElementById('successMsg');
   if (successMessage.dataset) successMessage.dataset.status = partial ? 'partial' : 'complete';
   document.getElementById('successDetail').textContent=`${partial ? `${pages} of ${exportImages.length} pages` : `${pages} page${pages>1?'s':''}`} · "${filename}" · ${measuredSize}${sizeNotes ? ' · ' + sizeNotes : ''}${preservationNotice ? ' · ' + preservationNotice : ''}`;
@@ -1667,7 +1677,8 @@ document.addEventListener('keydown', e => {
     const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
     const backward = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
     const activeControl = document.activeElement;
-    const inPageWorkspace = !!activeControl.closest?.('#imgGrid, .forge-proof');
+    const inPageWorkspace = !!activeControl.closest?.('#imgGrid, .forge-proof') &&
+      !activeControl.closest?.('details[open]');
     if ((forward || backward) && inPageWorkspace && images.length && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       const focusedPage = activeControl.closest?.('[data-preview-page]');
@@ -1675,7 +1686,8 @@ document.addEventListener('keydown', e => {
       const start = Number.isInteger(focusedIndex) && images[focusedIndex] ? focusedIndex : hasSel ? selectedConvertCard : forward ? -1 : 0;
       selectedConvertCard = (start + (forward ? 1 : -1) + images.length) % images.length;
       updateSelectionUI();
-      focusConvertPage(selectedConvertCard);
+      if (window.PageForgeUI?.focusActivePage) window.PageForgeUI.focusActivePage();
+      else focusConvertPage(selectedConvertCard);
       return;
     }
     // Duplicate

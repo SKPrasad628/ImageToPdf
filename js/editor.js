@@ -28,7 +28,7 @@ function discardEditorOutput(url) {
 function updateEditorControls(session = editorSession) {
   if (session && !isEditorSessionCurrent(session)) return;
   const busy = !!(session && (session.saving || session.pending));
-  document.querySelectorAll('#editorModal .modal-body button, #editorModal .modal-body input')
+  document.querySelectorAll('#editorModal .modal-body button, #editorModal .modal-body input, #editorModal .editor-footer [data-editor-commit]')
     .forEach(control => {
       const isSave = control.id === 'saveChangesBtn' || control.id === 'applyAllBtn';
       control.disabled = isSave ? !!(session && session.saving) : busy;
@@ -156,11 +156,21 @@ function openEditorFor(i) {
   editorFilters = {...(image.filters||{})};
   const pdfWarning = document.getElementById('editorPdfWarning');
   if (pdfWarning) pdfWarning.hidden = !(image.pdfSource || image.originalPdfSource);
+  const importNotice = document.getElementById('editorImportNotice');
+  if (importNotice) {
+    const adjustment = image.importAdjustment;
+    importNotice.hidden = !adjustment;
+    importNotice.textContent = adjustment
+      ? `This large image was fitted to ${adjustment.width} × ${adjustment.height} pixels on import. Revert restores that working copy. Your device original is unchanged.` : '';
+  }
   document.getElementById('editorModalTitle').textContent = `Edit: ${image.name}`;
   // Capture the trigger before the browser moves focus into the top layer.
   _editorReturnFocus = document.activeElement;
   _editorReturnPageId = pageIdentity(image);
   const dialog = document.getElementById('editorModal');
+  // Each page starts with the common tools visible and precise/bulk actions
+  // collapsed. These disclosures never own the editor's image state.
+  document.querySelectorAll('#editorModal details').forEach(details => { details.open = false; });
   dialog.classList.add('on');
   if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
   updateEditorControls();
@@ -178,10 +188,14 @@ function restoreEditorFocus() {
   const pageControl = Number.isInteger(fallbackIndex) && images[fallbackIndex]
     ? document.querySelector(`[data-preview-page="${fallbackIndex}"]`) : null;
   const fallback = pageControl || document.getElementById('fileInput');
-  const target = trigger && trigger.isConnected && !trigger.disabled && trigger.tagName !== 'BODY'
-    && (!trigger.getClientRects || trigger.getClientRects().length > 0)
-    ? trigger : fallback;
-  if (target && typeof target.focus === 'function') target.focus();
+  const visibleTrigger = trigger && trigger.isConnected && !trigger.disabled && trigger.tagName !== 'BODY'
+    && (!trigger.getClientRects || trigger.getClientRects().length > 0);
+  if (visibleTrigger && typeof trigger.focus === 'function') trigger.focus();
+  else if (images.length && typeof window.PageForgeUI?.focusActivePage === 'function') {
+    // The page rail can be inert on mobile. Let the workspace return focus to
+    // its currently visible Pages, Preview, or Layout view instead.
+    window.PageForgeUI.focusActivePage();
+  } else if (fallback && typeof fallback.focus === 'function') fallback.focus();
   _editorReturnFocus = null;
   _editorReturnPageId = null;
 }
@@ -299,10 +313,20 @@ function teardownCropDrag() {
 
 function switchEditorTab(name) {
   if (!canChangeEditor()) return;
+  // Keep the old Flip entry point valid now that both tools share one view.
+  if (name === 'flip') name = 'rotate';
+  const tabs = ['rotate', 'crop', 'resize', 'filters'];
+  if (!tabs.includes(name)) return;
   editorTab = name;
   editorPreviewRequest++;
-  document.querySelectorAll('.et').forEach(e => e.classList.remove('on'));
-  document.querySelector(`.et[onclick="switchEditorTab('${name}')"]`).classList.add('on');
+  tabs.forEach(tabName => {
+    const tab = document.getElementById('editor-tab-' + tabName);
+    if (!tab) return;
+    const selected = tabName === name;
+    tab.classList.toggle('on', selected);
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
   document.querySelectorAll('.et-panel').forEach(p => p.style.display = 'none');
   document.getElementById('panel-' + name).style.display = 'block';
   if (name === 'crop') {
@@ -314,6 +338,22 @@ function switchEditorTab(name) {
     if (name === 'resize') updateSizeInfo();
     else renderPreviewCanvas(editorCurrentSrc);
   }
+}
+
+function handleEditorTabKey(event) {
+  const tabs = ['rotate', 'crop', 'resize', 'filters'];
+  const targetTab = event.target && event.target.dataset && event.target.dataset.editorTab;
+  const index = tabs.indexOf(targetTab);
+  if (index < 0 || !canChangeEditor() || editorSession.pending) return;
+  let next;
+  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+  else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  switchEditorTab(tabs[next]);
+  document.getElementById('editor-tab-' + tabs[next]).focus();
 }
 
 // ── ROTATE ──
@@ -655,9 +695,19 @@ function resetFilterSliders() {
   });
 }
 function applyFilters() {
-  const filters = { ...editorFilters };
+  if (!canChangeEditor()) return Promise.resolve(false);
   const session = editorSession;
-  return queueEditorOperation('apply filters', async img => {
+  // A second activation while this Apply is running refers to the same step.
+  // Keep it out of the queue so the still-visible sliders cannot bake twice.
+  if (session.filterApply && session.filterApply.generation === session.generation) {
+    return session.filterApply.promise;
+  }
+  const filters = { ...editorFilters };
+  if (!hasEditorPixelTransform(0, false, false, filters)) {
+    showToast('No filter changes to apply');
+    return Promise.resolve(true);
+  }
+  const operation = queueEditorOperation('apply filters', async img => {
     if (window.PhotoPdfLimits) window.PhotoPdfLimits.assertDecodedImage(img);
     const cvs = document.createElement('canvas');
     cvs.width=img.naturalWidth; cvs.height=img.naturalHeight;
@@ -674,6 +724,11 @@ function applyFilters() {
     resetFilterSliders();
     renderPreviewCanvas(editorCurrentSrc);
   });
+  session.filterApply = { generation: session.generation, promise: operation };
+  operation.finally(() => {
+    if (session.filterApply && session.filterApply.promise === operation) session.filterApply = null;
+  });
+  return operation;
 }
 function resetFilters() {
   if (!canChangeEditor()) return;
@@ -807,13 +862,16 @@ async function saveEdits(applyToAll = false) {
       const targetFlipV = isCurrent ? fv : !!image.flipV !== flipVDelta;
       const targetFilters = isCurrent ? filters : [{ ...(image.filters || {}) }, ...filterRecipe];
       const changed = isCurrent ? sourceChanged || !sameTransform : hasBulkEdit;
+      const inputPdfSource = isCurrent ? session.pdfSource : image.pdfSource;
+      const nativeRotation = !!inputPdfSource && targetRotation % 90 === 0 &&
+        !hasEditorPixelTransform(0, targetFlipH, targetFlipV, targetFilters);
       return {
         ...image, filters: { ...(image.filters || {}) }, changed,
         inputPageSizeMm: copyPdfPageSize(isCurrent ? session.pdfPageSizeMm : image.pdfPageSizeMm),
-        inputPdfSource: isCurrent ? session.pdfSource : image.pdfSource,
+        inputPdfSource, nativeRotation,
         inputSrc: isCurrent ? editorCurrentSrc : image.src,
         targetRotation, targetFlipH, targetFlipV, targetFilters,
-        needsBake: changed && hasEditorPixelTransform(targetRotation, targetFlipH, targetFlipV, targetFilters)
+        needsBake: changed && !nativeRotation && hasEditorPixelTransform(targetRotation, targetFlipH, targetFlipV, targetFilters)
       };
     });
     const revision = documentRevision, fingerprint = editorDocumentFingerprint();
@@ -852,17 +910,18 @@ async function saveEdits(applyToAll = false) {
     const updates = staged.filter(({ target }) => target.changed).map(({ target, result }) => {
       const image = images.find(candidate => candidate._id === target._id);
       if (!image) throw new Error('A page was removed while saving');
-      return { image, id: _imgId(), pdfPageSizeMm: rotatedPdfPageSize(target.inputPageSizeMm, target.targetRotation),
+      return { image, id: _imgId(), rotation: target.nativeRotation ? target.targetRotation : 0,
+        pdfPageSizeMm: target.nativeRotation ? copyPdfPageSize(target.inputPageSizeMm) : rotatedPdfPageSize(target.inputPageSizeMm, target.targetRotation),
         pdfSource: !target.needsBake
           ? target.inputPdfSource || (target.inputSrc === target.originalSrc ? target.originalPdfSource : undefined) : undefined,
         entry: {
         src: result.src, thumb: result.thumb, originalSrc: target.originalSrc || target.src
       } };
     });
-    updates.forEach(({ image, id, entry, pdfPageSizeMm, pdfSource }) => {
+    updates.forEach(({ image, id, entry, pdfPageSizeMm, pdfSource, rotation }) => {
       putStore(id, entry);
       Object.assign(image, entry, { _pageId: pageIdentity(image), _id: id, pdfPageSizeMm,
-        rotation: 0, flipH: false, flipV: false, filters: {} });
+        rotation, flipH: false, flipV: false, filters: {} });
       // Only an untouched original PDF page can be exported as native PDF.
       // A real pixel edit requires a raster page; Revert can restore the source.
       if (pdfSource) image.pdfSource = { ...pdfSource };

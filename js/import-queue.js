@@ -20,13 +20,15 @@ function notifyImportState() {
 
 function getImportReport(target) {
   const report = importReports.get(target);
-  return report ? { ...report, skipped: report.skipped.map(({ name, reason }) => ({ name, reason })) } : null;
+  return report ? { ...report, skipped: report.skipped.map(({ name, reason }) => ({ name, reason })),
+    adjusted: report.adjusted.map(item => ({ ...item })) } : null;
 }
 
 function publishImportReport(job) {
   const report = { selected: job.selectedCount, imported: job.imported,
     canceled: !job.isCurrent(), cancellationReason: job.cancellationReason || '',
-    sequence: job.reportSequence, skipped: job.skipped.map(({ name, reason }) => ({ name, reason })) };
+    sequence: job.reportSequence, skipped: job.skipped.map(({ name, reason }) => ({ name, reason })),
+    adjusted: job.adjusted.map(item => ({ ...item })) };
   // A late older import must not erase a newer selection's rejection or result.
   const previous = importReports.get(job.target);
   if (previous && previous.sequence > report.sequence) return;
@@ -37,13 +39,25 @@ function publishImportReport(job) {
     if (!panel) return;
     if (typeof panel.replaceChildren === 'function') panel.replaceChildren();
     else panel.textContent = '';
-    panel.hidden = !report.skipped.length && !report.canceled;
+    panel.hidden = !report.skipped.length && !report.canceled && !report.adjusted.length;
     if (panel.hidden || typeof panel.appendChild !== 'function' || typeof document.createElement !== 'function') return;
     const heading = document.createElement('strong');
     heading.textContent = report.canceled
       ? report.cancellationReason || `Import canceled after ${report.imported} file(s) completed.`
       : `Imported ${report.imported} of ${report.selected} selected files.`;
     panel.appendChild(heading);
+    if (report.adjusted.length) {
+      const note = document.createElement('p');
+      note.textContent = 'Large images were fitted automatically. Editing, Revert, and Preserve original quality use these working copies; the files on your device are unchanged.';
+      panel.appendChild(note);
+      const list = document.createElement('ul');
+      report.adjusted.forEach(item => {
+        const row = document.createElement('li');
+        row.textContent = `${item.name}: ${item.sourceWidth} × ${item.sourceHeight} → ${item.width} × ${item.height} pixels (lossless PNG working copy).`;
+        list.appendChild(row);
+      });
+      panel.appendChild(list);
+    }
     if (report.skipped.length) {
       const list = document.createElement('ul');
       report.skipped.forEach(item => {
@@ -66,7 +80,7 @@ function createImportJob(files, target) {
   let settle;
   const promise = new Promise(resolve => { settle = resolve; });
   const job = {
-    files, target, promise, settle, imported: 0, skipped: [],
+    files, target, promise, settle, imported: 0, skipped: [], adjusted: [],
     selectedCount: files.length, reportSequence: ++importReportSequence,
     isCurrent: () => !canceled && generation === importGeneration,
     reportIssue(file, reason) {
@@ -129,9 +143,34 @@ async function importImageFile(file, job, classification) {
     // This lets valid images with misleading MIME types reach the right decoder.
     const imageBlob = typeof file.slice === 'function'
       ? file.slice(0, file.size, classification.mime) : file;
-    const allocated = URL.createObjectURL(imageBlob);
+    const plan = limits ? limits.planImageImport(file, classification) : null;
+    let workingBlob = imageBlob, width = classification.displayWidth || classification.width,
+      height = classification.displayHeight || classification.height;
+    let adjusted = null;
+    if (plan?.needsNormalization) {
+      const normalizer = window.PhotoPdfLargeImages;
+      if (!normalizer) throw new Error('The large-image tools are unavailable. Reload the page and try again.');
+      showPdfLoading(job.target, true, `Fitting "${file.name}"…`, 'Preparing a high-quality working image…', 0);
+      try {
+        const result = await limits.enqueueDecode(() => {
+          if (typeof clearImageCache === 'function') clearImageCache();
+          return normalizer.normalize(imageBlob, plan, job);
+        }, job);
+        if (!job.isCurrent()) return false;
+        limits.assertRaster(result.width, result.height, 'Fitted image');
+        if (!result.blob || !Number.isSafeInteger(result.blob.size) || result.blob.size > plan.maxBytes) {
+          throw new Error('The fitted image could not fit the available working-file budget.');
+        }
+        workingBlob = result.blob; width = result.width; height = result.height;
+        adjusted = { sourceWidth: result.sourceWidth || plan.sourceWidth, sourceHeight: result.sourceHeight || plan.sourceHeight, width, height,
+          sourceBytes: file.size, workingBytes: workingBlob.size };
+      } finally { showPdfLoading(job.target, false); }
+    }
+    if (!job.isCurrent()) return false;
+    const workingBytes = adjusted ? workingBlob.size : file.size;
+    const allocated = URL.createObjectURL(workingBlob);
     try {
-      if (limits) limits.trackUrl(allocated, file.size, classification.width, classification.height);
+      if (limits) limits.trackUrl(allocated, workingBytes, width, height);
     } catch (error) {
       URL.revokeObjectURL(allocated);
       throw error;
@@ -148,11 +187,12 @@ async function importImageFile(file, job, classification) {
     putStore(id, { src, originalSrc: src, thumb });
     images.push({
       _id: id, _pageId: id, src, originalSrc: src, thumb,
-      name: file.name, size: file.size,
+      name: file.name, size: workingBytes, ...(adjusted ? { importAdjustment: adjusted } : {}),
       rotation: 0, flipH: false, flipV: false, filters: {}
     });
     snapshot('Add image');
     refreshAll();
+    if (adjusted) job.adjusted.push({ name: String(file.name), ...adjusted });
     return true;
   } catch (error) {
     if (job.isCurrent()) {

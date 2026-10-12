@@ -23,11 +23,14 @@ const needsLibrary = { skip: PDFLib ? false : 'Install pdf-lib@1.17.1 to run rea
 
 function harness(options = {}) {
   const imports = [];
-  const context = vm.createContext({ window: {}, Uint8Array, ArrayBuffer, setTimeout, clearTimeout, URL,
+  const context = vm.createContext({ window: {}, Uint8Array, ArrayBuffer, TextDecoder, setTimeout, clearTimeout, URL,
     document: { currentScript: { src: 'https://example.test/personal-tools/photo-pdf/js/pdf-preserve.js' } } });
   // Execute the real bundled library in the application's realm, just as a
   // browser import does. pdf-lib validates arrays using instanceof Array.
   if (libraryBundle && !options.library) vm.runInContext(libraryBundle, context);
+  for (const name of ['core', 'navigation', 'forms', 'tags']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, `../js/pdf-native-${name}.js`), 'utf8'), context);
+  }
   const library = options.library || context.PDFLib;
   let module;
   let failedOnce = false;
@@ -231,8 +234,8 @@ test('reordering, deleting and rotating native PDF pages keeps text, vectors and
   const original = await PDFLib.PDFDocument.load(record.bytes);
   assert.deepEqual(contentBytes(document, document.getPage(0)), contentBytes(original, original.getPage(2)),
     'text and vector drawing operators are retained exactly rather than rendered into an image');
-  assert.match(result.notice, /signatures/);
-  assert.match(result.notice, /may no longer work/);
+  assert.match(result.notice, /rebuilt forms, bookmarks, links/);
+  assert.doesNotMatch(result.notice, /may no longer work/);
 });
 
 test('duplicated native pages get independent page refs and independent rotations', needsLibrary, async () => {
@@ -259,18 +262,14 @@ test('same-document internal page-ref links follow surviving pages after a reord
   assert.equal(destinations[0].get(0).toString(), document.getPage(0).ref.toString());
 });
 
-test('deleting a link or bookmark target exposes a remaining advanced-feature limitation', needsLibrary, async () => {
+test('deleting a link target removes its invalid jump and reports the adjustment', needsLibrary, async () => {
   const record = await fixture();
   const result = await harness().api.prepareStructurePreservingPdf([native('a', 0)], optionsFor({ a: record }));
   const document = await PDFLib.PDFDocument.load(result.bytes);
-  const pageRefs = new Set(document.getPages().map(page => page.ref.toString()));
   const annotations = document.getPage(0).node.Annots();
-  const destination = annotations.asArray().map(ref => document.context.lookup(ref))
-    .find(annotation => annotation.has(PDFLib.PDFName.of('Dest')))
-    .lookup(PDFLib.PDFName.of('Dest'), PDFLib.PDFArray);
-  assert.equal(pageRefs.has(destination.get(0).toString()), false,
-    'a deleted target is no longer a rendered page; this export cannot claim full link preservation');
-  assert.match(result.notice, /internal links.*may no longer work/s);
+  assert.equal(annotations.asArray().map(ref => document.context.lookup(ref))
+    .some(annotation => annotation.has(PDFLib.PDFName.of('Dest'))), false);
+  assert.ok(result.adjustments.length > 0);
 });
 
 test('inherited resources and boxes are materialized before pages move to a new parent', needsLibrary, async () => {
@@ -315,8 +314,8 @@ test('mixed PDFs and photos retain native page text while laying out only the ph
   assert.equal(prepared[0].settings.preserveQuality, true);
   assert.equal(result.nativePages, 2); assert.equal(result.imagePages, 1);
   assert.equal(result.scaledDownPages, 1); assert.equal(result.croppedPages, 1);
-  assert.equal(document.catalog.has(PDFLib.PDFName.of('AcroForm')), false);
-  assert.match(result.notice, /does not preserve document-level forms/);
+  assert.equal(document.getForm().getTextField('personal.name').getText(), 'Alice');
+  assert.match(result.notice, /rebuilt forms, bookmarks, links/);
   const photoOperators = contentBytes(document, document.getPage(1)).toString('latin1');
   assert.match(photoOperators, /re\nW\nn\n/);
   assert.match(photoOperators, /Do\nQ\nQ\n/, 'drawing and clip graphics states are both restored');

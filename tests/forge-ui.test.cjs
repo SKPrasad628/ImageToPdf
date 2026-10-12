@@ -85,7 +85,7 @@ function harness({ realLightbox = false, autoTimers = false } = {}) {
     localStorage: { getItem() { return null; }, setItem() {} },
     confirm() { return true; }, alert(message) { calls.push(['alert', message]); },
     addEventListener(name, callback) { windowListeners.set(name, callback); },
-    matchMedia(query) { return { matches: true,
+    matchMedia(query) { return { matches: query !== '(max-width: 680px)',
       addEventListener(name, callback) { mediaListeners.set(query + ':' + name, callback); } }; },
     bridgeCall(...args) { calls.push(args); }
   });
@@ -147,7 +147,8 @@ test('checkboxes and active preview remain independent in state and accessible c
   h.context.toggleForgeSelection(2, false);
   assert.equal(h.selected().active, 'page-B');
   assert.deepEqual(h.selected().checked, []);
-  assert.equal(h.element('rotateSelectionBtn').textContent, 'Rotate all 90°');
+  assert.equal(h.element('rotateSelectionBtn').textContent, 'Rotate selected 90°');
+  assert.equal(h.element('rotateSelectionBtn').disabled, true);
   h.context.toggleForgeSelection(-1, true); h.context.setForgeActive(20);
   assert.deepEqual(h.selected(), { active: 'page-B', pdf: 'page-C', checked: [] });
 });
@@ -159,6 +160,17 @@ function enableExport(h, prepare = async image => ({ w: 200, h: 100, data: image
     output() { return { size: 2345 }; }
   } };
 }
+
+test('active large-image import adjustment stays visible and clears when viewing an untouched image', () => {
+  const h = harness(); h.seed();
+  h.run('images[0].importAdjustment = { sourceWidth: 12000, sourceHeight: 8000, width: 4898, height: 3265 };');
+  h.api.refresh();
+  assert.equal(h.element('pageImportAdjustment').hidden, false);
+  assert.match(h.element('pageImportAdjustment').textContent, /12000 × 8000 → 4898 × 3265/);
+  assert.match(h.element('pageImportAdjustment').textContent, /working detail/);
+  h.context.setForgeActive(1);
+  assert.equal(h.element('pageImportAdjustment').hidden, true);
+});
 
 test('document and layout changes mark the retained PDF as previous while selection and history disposal do not', async () => {
   const h = harness({ autoTimers: true }); h.seed(); enableExport(h);
@@ -261,16 +273,51 @@ test('an impossible output cannot evict a valid previous PDF', () => {
   assert.equal(h.links.at(-1).download, 'older.pdf');
 });
 
-test('a failed retry preserves the missing-page warning for a previous partial PDF', async () => {
+test('a failed retry preserves each missing page and recovery guidance for the downloadable previous partial PDF', async () => {
   const h = harness({ autoTimers: true }); h.seed();
   enableExport(h, async image => image.name === 'C' ? null : { w: 200, h: 100, data: image.src, format: 'JPEG' });
   await h.context.generatePDF();
   assert.equal(h.context.getExportReport().status, 'partial');
+  h.run('images[2].name="replacement"; images.reverse(); snapshot("Arrange");');
+  h.api.refresh();
+  assert.match(h.element('exportFreshnessStatus').textContent, /Changes since export — forge again/);
+  assert.match(h.element('exportFreshnessStatus').textContent, /Page 3: C — The image could not be decoded for PDF export/);
   h.context.preparePdfImage = async () => { throw new Error('Could not generate replacement'); };
   await h.context.generatePDF();
   assert.match(h.element('exportFreshnessStatus').textContent, /Previous PDF is partial \(2 of 3 pages\)/);
+  assert.match(h.element('exportFreshnessStatus').textContent, /Pages not included in the previous PDF:\nPage 3: C — The image could not be decoded for PDF export/);
+  assert.match(h.element('exportFreshnessStatus').textContent, /replace or re-add the listed files, then forge the PDF again/);
   assert.equal(h.element('downloadAgainBtn').textContent, 'Download previous PDF');
   assert.equal(h.stats().downloadBytes, 2345);
+  h.context.downloadLastForge();
+  assert.equal(h.links.at(-1).href, 'blob:output-1');
+});
+
+test('retained omission details copy only the reported labels and survive caller mutation', () => {
+  const h = harness(); h.seed();
+  h.context.downloadPdfBlob({ size: 123 }, 'partial.pdf');
+  const report = { status: 'partial', exportedPages: 1, requestedPages: 3,
+    skipped: [{ position: 2, name: 'omitted <img>', reason: 'Unreadable source', src: new Uint8Array(100) }] };
+  h.api.reportChanged(report);
+  report.skipped[0].position = 77; report.skipped[0].name = 'mutated'; report.skipped[0].reason = 'mutated';
+  report.skipped.push({ position: 3, name: 'mutated', reason: 'mutated' });
+  h.run('images.reverse()'); h.api.refresh();
+  assert.match(h.element('exportFreshnessStatus').textContent, /Page 2: omitted <img> — Unreadable source/);
+  assert.doesNotMatch(h.element('exportFreshnessStatus').textContent, /mutated|77/);
+  assert.equal(h.stats().downloadBytes, 123);
+});
+
+test('a successful replacement clears omission details from the previous partial PDF', async () => {
+  const h = harness({ autoTimers: true }); h.seed();
+  enableExport(h, async image => image.name === 'C' ? null : { w: 200, h: 100, data: image.src, format: 'JPEG' });
+  await h.context.generatePDF();
+  h.context.preparePdfImage = async image => ({ w: 200, h: 100, data: image.src, format: 'JPEG' });
+  await h.context.generatePDF();
+  h.run('images.reverse()'); h.api.refresh();
+  assert.doesNotMatch(h.element('exportFreshnessStatus').textContent, /partial|not included|Page 3: C/);
+  assert.equal(h.context.getExportReport().status, 'complete');
+  h.context.downloadLastForge();
+  assert.equal(h.links.at(-1).href, 'blob:output-2');
 });
 
 test('original-quality mode replaces compression choices with an explicit lossless status', () => {
@@ -289,7 +336,7 @@ test('original-quality mode replaces compression choices with an explicit lossle
   assert.equal(h.element('qualityLosslessStatus').hidden, true);
 });
 
-test('compact binding options retain the user choice until crossing the desktop breakpoint', () => {
+test('layout options retain the user choice when the viewport changes', () => {
   const h = harness(), options = h.element('bindingOptions');
   assert.equal(options.open, false);
   options.open = true; h.api.refresh();
@@ -297,7 +344,7 @@ test('compact binding options retain the user choice until crossing the desktop 
   h.compactBreakpoint(false);
   assert.equal(options.open, true);
   h.compactBreakpoint(true);
-  assert.equal(options.open, false);
+  assert.equal(options.open, true);
 });
 
 test('More closes after an action and Escape restores focus to its summary', () => {

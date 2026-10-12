@@ -260,6 +260,15 @@ function installLimits(h) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/raster-limits.js'), 'utf8'), h.context);
   return h.context.PhotoPdfLimits;
 }
+function installNormalizer(h, hook = async () => {}) {
+  const plans = [];
+  h.context.PhotoPdfLargeImages = { async normalize(blob, plan, job) {
+    plans.push({ name: blob.name, ...plan });
+    await hook(blob, plan, job);
+    return { blob: { name: 'fitted.png', size: 100, type: 'image/png' }, width: plan.width, height: plan.height };
+  } };
+  return plans;
+}
 
 test('empty and misleading image MIME types import by signature in the original order', async () => {
   const h = harness();
@@ -286,28 +295,101 @@ test('a recognized PDF signature with unknown name and MIME uses PDF import', as
   assert.deepEqual(h.images.map(entry => entry.name), ['unnamed-p1', 'unnamed-p2']);
 });
 
-test('limits reject oversized or unknown header dimensions before allocating or decoding', async () => {
+test('large images are fitted before URLs and decoding, while unknown dimensions remain rejected', async () => {
   const h = harness(); installLimits(h);
+  const plans = installNormalizer(h);
   await h.import([headerFile('giant.png', 9000, 2), file('no-dimensions.jpg'), headerFile('good.png')]);
-  assert.deepEqual(h.starts, ['blob:good.png-1']);
-  assert.deepEqual(h.images.map(entry => entry.name), ['good.png']);
-  assert.equal(h.context.getImportReport('edit').skipped.length, 2);
-  assert.match(h.context.getImportReport('edit').skipped[0].reason, /too large/);
-  assert.match(h.context.getImportReport('edit').skipped[1].reason, /verified safely/);
+  assert.deepEqual(h.starts, ['blob:fitted.png-1', 'blob:good.png-2']);
+  assert.deepEqual(h.images.map(entry => entry.name), ['giant.png', 'good.png']);
+  assert.equal(plans.length, 1); assert.equal(plans[0].width, 8192);
+  const report = h.context.getImportReport('edit');
+  assert.equal(report.skipped.length, 1);
+  assert.match(report.skipped[0].reason, /verified safely/);
+  assert.equal(report.adjusted[0].name, 'giant.png');
+  assert.equal(h.images[0].importAdjustment.sourceWidth, 9000);
+  assert.equal(h.images[0].size, 100, 'Only fitted bytes enter working storage');
 });
 
-test('oversized compressed files are rejected before image URLs are created', async () => {
+test('compressed images above the old 32 MiB limit are normalized instead of rejected', async () => {
   const h = harness(); installLimits(h);
+  const plans = installNormalizer(h);
   await h.import([{ ...headerFile('giant.png'), size: 33 * 1024 * 1024 }]);
+  assert.equal(plans.length, 1);
+  assert.deepEqual(h.images.map(entry => entry.name), ['giant.png']);
+  assert.equal(h.context.getImportReport('edit').skipped.length, 0);
+  assert.equal(h.images[0].importAdjustment.sourceBytes, 33 * 1024 * 1024);
+});
+
+test('normalization preserves FIFO order, releases source files, and returns detached adjustment reports', async () => {
+  const h = harness(); installLimits(h);
+  const paused = deferred(), release = deferred();
+  installNormalizer(h, async (blob) => { if (blob.name === 'z-first.png') { paused.resolve(); await release.promise; } });
+  const first = h.import([headerFile('z-first.png', 12000, 8000), headerFile('a-second.png')]);
+  await paused.promise;
+  const second = h.import([headerFile('b-last.png')]);
+  assert.deepEqual(h.starts, []);
+  assert.equal(h.context.hasPendingImports(), true);
+  release.resolve();
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.deepEqual(h.images.map(image => image.name), ['z-first.png', 'a-second.png', 'b-last.png']);
+  assert.equal(h.allocated.some(blob => blob.name === 'z-first.png'), false, 'The oversized original gets no retained URL');
+  assert.equal(h.images[0].src, h.images[0].originalSrc, 'Revert targets the fitted working image');
+  const report = h.context.getImportReport('edit');
+  assert.equal(report.adjusted.length, 0, 'A later selection owns its own report');
+  assert.equal(h.images[0].importAdjustment.sourceWidth, 12000);
+});
+
+test('canceling normalization commits no late image or URL and permits the next upload', async () => {
+  const h = harness(); installLimits(h);
+  const paused = deferred(), release = deferred();
+  installNormalizer(h, async () => { paused.resolve(); await release.promise; });
+  const pending = h.import([headerFile('giant.png', 12000, 8000)]);
+  await paused.promise; h.cancel();
+  const fresh = h.import([headerFile('new.png')]);
+  release.resolve();
+  assert.deepEqual(await Promise.all([pending, fresh]), [false, true]);
+  assert.deepEqual(h.images.map(image => image.name), ['new.png']);
+  assert.deepEqual(h.starts, ['blob:new.png-1']);
+  assert.equal(h.allocated.length, 1);
+  assert.equal(h.context.hasPendingImports(), false);
+});
+
+test('fitted input cleanup survives thumbnail failure and malformed normalizer results', async () => {
+  const h = harness({ thumb: src => { if (src.includes('fitted')) throw new Error('Thumbnail failure'); } });
+  installLimits(h); installNormalizer(h);
+  await h.import([headerFile('giant.png', 12000, 8000), headerFile('good.png')]);
+  assert.deepEqual(h.images.map(image => image.name), ['good.png']);
+  assert.deepEqual(h.revoked, ['blob:fitted.png-1']);
+  assert.equal(h.context.getImportReport('edit').adjusted.length, 0);
+  h.context.PhotoPdfLargeImages.normalize = async () => ({ blob: { size: 99 * 1024 * 1024 }, width: 4000, height: 4000 });
+  assert.equal(await h.import([headerFile('bad-fit.png', 12000, 8000)]), false);
+  assert.match(h.context.getImportReport('edit').skipped[0].reason, /working-file budget/);
+});
+
+test('adjustment reports do not retain File objects or permit mutation of future reads', async () => {
+  const h = harness(); installLimits(h); installNormalizer(h);
+  await h.import([headerFile('giant.png', 12000, 8000)]);
+  const report = h.context.getImportReport('edit');
+  assert.equal(report.adjusted.length, 1);
+  assert.equal('file' in report.adjusted[0], false);
+  report.adjusted[0].width = 1;
+  assert.ok(h.context.getImportReport('edit').adjusted[0].width > 1);
+});
+
+test('encoded input beyond the source limit is rejected before allocating or resizing', async () => {
+  const h = harness(); installLimits(h);
+  const plans = installNormalizer(h);
+  await h.import([{ ...headerFile('giant.png'), size: 256 * 1024 * 1024 + 1 }]);
+  assert.equal(plans.length, 0);
   assert.deepEqual(h.starts, []); assert.deepEqual(h.revoked, []);
-  assert.match(h.context.getImportReport('edit').skipped[0].reason, /32 MB/);
+  assert.match(h.context.getImportReport('edit').skipped[0].reason, /256 MB/);
 });
 
 test('retained-byte admission failure revokes the new input URL and reports the reason', async () => {
   const h = harness(), limits = installLimits(h);
   limits.reserveBytes('occupied', 128 * 1024 * 1024);
   await h.import([headerFile('photo.png')]);
-  assert.deepEqual(h.starts, []); assert.deepEqual(h.revoked, ['blob:photo.png-1']);
+  assert.deepEqual(h.starts, []); assert.deepEqual(h.revoked, []);
   assert.equal(h.refs.size, 0); assert.match(h.context.getImportReport('edit').skipped[0].reason, /128 MB/);
 });
 
@@ -431,13 +513,13 @@ test('real classifier plus limits rejects a malformed PNG header before URL or d
   assert.match(h.context.getImportReport('edit').skipped[0].reason, /dimensions could not be verified/);
 });
 
-test('real PNG Blob headers above the raster cap are rejected before URL allocation', async () => {
+test('real PNG Blob headers beyond the source cap are rejected before URL allocation', async () => {
   const h = harness(); installLimits(h);
-  const header = headerFile('giant.png', 9000, 2);
+  const header = headerFile('giant.png', 16000, 16001);
   const input = new Blob([await header.slice(0, header.size).arrayBuffer()], { type: '' }); input.name = 'giant.png';
   assert.equal(await h.import([input]), false);
   assert.deepEqual(h.allocated, []); assert.deepEqual(h.starts, []);
-  assert.match(h.context.getImportReport('edit').skipped[0].reason, /too large/);
+  assert.match(h.context.getImportReport('edit').skipped[0].reason, /exceeds 256 megapixels/);
 });
 
 test('real TIFF input is explicitly skipped without a decoder or image URL allocation', async () => {

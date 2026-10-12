@@ -99,6 +99,7 @@ for (const tab of ['convert', 'edit']) {
       reason: 'The image could not be decoded for PDF export.' }]);
     assert.match(h.element('exportReport').textContent, /^Partial PDF saved/);
     assert.match(h.element('exportReport').textContent, /Page 2: <img src=x onerror=alert\(1\)>/);
+    assert.match(h.element('exportReport').textContent, /continue editing, replace or re-add the listed files, then forge the PDF again/);
     assert.equal('innerHTML' in h.element('exportReport'), false, 'Names are assigned as text');
     assert.equal(h.element('exportReport').hidden, false);
     assert.match(h.element('successTitle').textContent, /^Partial PDF saved/);
@@ -122,6 +123,7 @@ test('all unreadable pages persist each source name and position without produci
   assert.equal(report.status, 'failed'); assert.equal(report.exportedPages, 0);
   assert.deepEqual(report.skipped.map(page => page.position), [1, 2]);
   assert.match(h.element('exportReport').textContent, /^Export failed — no PDF was downloaded/);
+  assert.match(h.element('exportReport').textContent, /replace or re-add the listed files/);
   assert.equal(h.element('successMsg').classList.contains('on'), false);
   assert.equal(h.element('pdfExportNotice').hidden, true);
 });
@@ -202,7 +204,7 @@ test('a later complete export replaces an earlier partial report and restores fu
   h.onPrepare(null);
   await h.run('generatePDF()');
   assert.equal(h.report().status, 'complete'); assert.deepEqual(h.report().skipped, []);
-  assert.equal(h.element('successTitle').textContent, 'Thy tome is forged');
+  assert.equal(h.element('successTitle').textContent, 'Your PDF is ready');
   assert.equal(h.element('successMsg').dataset.status, 'complete');
   assert.doesNotMatch(h.element('exportReport').textContent, /Partial|Pages not included/);
   assert.equal(h.element('pdfExportNotice').textContent.startsWith('Last exported PDF:'), true);
@@ -220,7 +222,7 @@ test('a missing PDF library replaces previous success with a persistent failure 
   assert.equal(h.element('convertBtn').disabled, false);
 });
 
-for (const filename of ['report.pdf', 'report.PDF .pdf', ' .pdf .PDF ', 'report']) {
+for (const filename of ['report.pdf', 'report.PDF .pdf', 'report.pdf.', 'report.PDF... .pdf... ', ' .pdf .PDF ', 'report']) {
   test(`actual exported download normalizes exactly one PDF extension for ${JSON.stringify(filename)}`, async () => {
     const h = harness([page('photo')], { filename }); await h.run('generatePDF()');
     const expected = filename.includes('report') ? 'report.pdf' : 'my-photos.pdf';

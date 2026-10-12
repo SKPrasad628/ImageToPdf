@@ -1,0 +1,486 @@
+{
+  "parser": "pypdf",
+  "checks": [
+    {
+      "file": "source-a.pdf",
+      "byteLength": 5313,
+      "pageOrder": [
+        "A1",
+        "A2"
+      ],
+      "rotations": [
+        0,
+        0
+      ],
+      "fields": {
+        "shared.name": "Alice A - editable",
+        "shared.approved": "/Yes"
+      },
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305,
+          "ref": [
+            14,
+            0
+          ]
+        },
+        {
+          "page": 2,
+          "name": "shared.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261,
+          "ref": [
+            17,
+            0
+          ]
+        }
+      ],
+      "links": [
+        {
+          "page": 1,
+          "targetPage": 2
+        }
+      ],
+      "outlines": [
+        {
+          "title": "A: summary",
+          "page": 1
+        },
+        {
+          "title": "A: details",
+          "page": 2
+        }
+      ],
+      "namedDestinationCount": 1,
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "00ff0102412d70726f6f660a"
+        }
+      ],
+      "structureElements": 10,
+      "markedContentReferences": 5,
+      "objectReferences": 3,
+      "parentTreeKeys": 5,
+      "allChecksPassed": true
+    },
+    {
+      "file": "source-b.pdf",
+      "byteLength": 5304,
+      "pageOrder": [
+        "B1",
+        "B2"
+      ],
+      "rotations": [
+        0,
+        0
+      ],
+      "fields": {
+        "shared.name": "Bob B - editable",
+        "shared.approved": "/Off"
+      },
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.name",
+          "value": "Bob B - editable",
+          "appearanceBytes": 301,
+          "ref": [
+            14,
+            0
+          ]
+        },
+        {
+          "page": 2,
+          "name": "shared.approved",
+          "value": "/Off",
+          "appearanceBytes": 153,
+          "ref": [
+            17,
+            0
+          ]
+        }
+      ],
+      "links": [
+        {
+          "page": 1,
+          "targetPage": 2
+        }
+      ],
+      "outlines": [
+        {
+          "title": "B: summary",
+          "page": 1
+        },
+        {
+          "title": "B: details",
+          "page": 2
+        }
+      ],
+      "namedDestinationCount": 1,
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "ff000304422d70726f6f660a"
+        }
+      ],
+      "structureElements": 10,
+      "markedContentReferences": 5,
+      "objectReferences": 3,
+      "parentTreeKeys": 5,
+      "allChecksPassed": true
+    },
+    {
+      "file": "revised.pdf",
+      "byteLength": 7062,
+      "pageOrder": [
+        "A2",
+        "A1",
+        "A2"
+      ],
+      "rotations": [
+        0,
+        90,
+        0
+      ],
+      "fields": {
+        "shared.name": "Alice A - editable",
+        "shared.approved": "/Yes",
+        "shared_copy2_1.approved": "/Yes"
+      },
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261,
+          "ref": [
+            9,
+            0
+          ]
+        },
+        {
+          "page": 2,
+          "name": "shared.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305,
+          "ref": [
+            13,
+            0
+          ]
+        },
+        {
+          "page": 3,
+          "name": "shared_copy2_1.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261,
+          "ref": [
+            24,
+            0
+          ]
+        }
+      ],
+      "links": [
+        {
+          "page": 2,
+          "targetPage": 1
+        }
+      ],
+      "outlines": [
+        {
+          "title": "A: summary",
+          "page": 2
+        },
+        {
+          "title": "A: details",
+          "page": 1
+        }
+      ],
+      "namedDestinationCount": 1,
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "00ff0102412d70726f6f660a"
+        }
+      ],
+      "structureElements": 15,
+      "markedContentReferences": 7,
+      "objectReferences": 4,
+      "parentTreeKeys": 7,
+      "allChecksPassed": true
+    },
+    {
+      "file": "merged.pdf",
+      "byteLength": 8777,
+      "pageOrder": [
+        "A2",
+        "B1",
+        "A1",
+        "B2"
+      ],
+      "rotations": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "fields": {
+        "shared.name": "Alice A - editable",
+        "shared.approved": "/Yes",
+        "shared_source2_1.name": "Bob B - editable",
+        "shared_source2_1.approved": "/Off"
+      },
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261,
+          "ref": [
+            10,
+            0
+          ]
+        },
+        {
+          "page": 2,
+          "name": "shared_source2_1.name",
+          "value": "Bob B - editable",
+          "appearanceBytes": 301,
+          "ref": [
+            25,
+            0
+          ]
+        },
+        {
+          "page": 3,
+          "name": "shared.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305,
+          "ref": [
+            14,
+            0
+          ]
+        },
+        {
+          "page": 4,
+          "name": "shared_source2_1.approved",
+          "value": "/Off",
+          "appearanceBytes": 153,
+          "ref": [
+            29,
+            0
+          ]
+        }
+      ],
+      "links": [
+        {
+          "page": 2,
+          "targetPage": 4
+        },
+        {
+          "page": 3,
+          "targetPage": 1
+        }
+      ],
+      "outlines": [
+        {
+          "title": "A: summary",
+          "page": 3
+        },
+        {
+          "title": "A: details",
+          "page": 1
+        },
+        {
+          "title": "B: summary",
+          "page": 2
+        },
+        {
+          "title": "B: details",
+          "page": 4
+        }
+      ],
+      "namedDestinationCount": 2,
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "00ff0102412d70726f6f660a"
+        },
+        {
+          "name": "proof.bin (source 2)",
+          "bytes": 12,
+          "hex": "ff000304422d70726f6f660a"
+        }
+      ],
+      "structureElements": 20,
+      "markedContentReferences": 10,
+      "objectReferences": 6,
+      "parentTreeKeys": 10,
+      "allChecksPassed": true
+    },
+    {
+      "file": "browser-export.pdf",
+      "byteLength": 10115,
+      "pageOrder": [
+        "A1",
+        "A1",
+        "A2",
+        "B1",
+        "B2"
+      ],
+      "rotations": [
+        90,
+        90,
+        0,
+        0,
+        0
+      ],
+      "fields": {
+        "shared.name": "Alice A - editable",
+        "shared.approved": "/Yes",
+        "shared_copy2_1.name": "Alice A - editable",
+        "shared_source2_1.name": "Bob B - editable",
+        "shared_source2_1.approved": "/Off"
+      },
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305,
+          "ref": [
+            11,
+            0
+          ]
+        },
+        {
+          "page": 2,
+          "name": "shared_copy2_1.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305,
+          "ref": [
+            25,
+            0
+          ]
+        },
+        {
+          "page": 3,
+          "name": "shared.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261,
+          "ref": [
+            15,
+            0
+          ]
+        },
+        {
+          "page": 4,
+          "name": "shared_source2_1.name",
+          "value": "Bob B - editable",
+          "appearanceBytes": 301,
+          "ref": [
+            35,
+            0
+          ]
+        },
+        {
+          "page": 5,
+          "name": "shared_source2_1.approved",
+          "value": "/Off",
+          "appearanceBytes": 153,
+          "ref": [
+            39,
+            0
+          ]
+        }
+      ],
+      "links": [
+        {
+          "page": 1,
+          "targetPage": 3
+        },
+        {
+          "page": 2,
+          "targetPage": 3
+        },
+        {
+          "page": 4,
+          "targetPage": 5
+        }
+      ],
+      "outlines": [
+        {
+          "title": "A: summary",
+          "page": 1
+        },
+        {
+          "title": "A: details",
+          "page": 3
+        },
+        {
+          "title": "B: summary",
+          "page": 4
+        },
+        {
+          "title": "B: details",
+          "page": 5
+        }
+      ],
+      "namedDestinationCount": 2,
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "00ff0102412d70726f6f660a"
+        },
+        {
+          "name": "proof.bin (source 2)",
+          "bytes": 12,
+          "hex": "ff000304422d70726f6f660a"
+        }
+      ],
+      "structureElements": 26,
+      "markedContentReferences": 13,
+      "objectReferences": 8,
+      "parentTreeKeys": 13,
+      "allChecksPassed": true
+    }
+  ],
+  "exportReports": {
+    "revised": {
+      "exactOriginal": false,
+      "nativePages": 3,
+      "imagePages": 0,
+      "scaledDownPages": 0,
+      "croppedPages": 0,
+      "adjustments": [
+        "Form field \u201cshared\u201d from \u201csource-a.pdf\u201d was renamed to \u201cshared_copy2_1\u201d to keep its values independent.",
+        "Duplicated tagged pages received independent accessibility structure and parent indexes."
+      ],
+      "notice": "Native PDF content retained with rebuilt forms, bookmarks, links, attachments and supported accessibility structure where present. Signed and encrypted PDFs require untouched export; known unsafe or unsupported structures block native changes. Changes: Form field \u201cshared\u201d from \u201csource-a.pdf\u201d was renamed to \u201cshared_copy2_1\u201d to keep its values independent. Duplicated tagged pages received independent accessibility structure and parent indexes.",
+      "byteLength": 7062
+    },
+    "merged": {
+      "exactOriginal": false,
+      "nativePages": 4,
+      "imagePages": 0,
+      "scaledDownPages": 0,
+      "croppedPages": 0,
+      "adjustments": [
+        "Only the first source document\u2019s opening view or action was retained in the merged document.",
+        "Form field \u201cshared\u201d from \u201csource-b.pdf\u201d was renamed to \u201cshared_source2_1\u201d to keep its values independent.",
+        "Accessibility keeps whole source hierarchies when pages from different documents or duplicates are interleaved."
+      ],
+      "notice": "Native PDF content retained with rebuilt forms, bookmarks, links, attachments and supported accessibility structure where present. Signed and encrypted PDFs require untouched export; known unsafe or unsupported structures block native changes. Changes: Only the first source document\u2019s opening view or action was retained in the merged document. Form field \u201cshared\u201d from \u201csource-b.pdf\u201d was renamed to \u201cshared_source2_1\u201d to keep its values independent. Accessibility keeps whole source hierarchies when pages from different documents or duplicates are interleaved.",
+      "byteLength": 8777
+    }
+  },
+  "visualInspection": "PNG renders generated for parent review; this JSON does not claim visual inspection."
+}

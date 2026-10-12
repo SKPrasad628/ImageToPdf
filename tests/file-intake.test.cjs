@@ -28,6 +28,33 @@ function webp(kind, payload) {
   new DataView(bytes.buffer).setUint32(16, payload.length, true); bytes.set(payload, 20);
   return bytes;
 }
+function exifTiff(orientation, little = true) {
+  const bytes = new Uint8Array(26), view = new DataView(bytes.buffer);
+  bytes.set(Buffer.from(little ? 'II' : 'MM'));
+  view.setUint16(2, 42, little); view.setUint32(4, 8, little);
+  view.setUint16(8, 1, little);
+  view.setUint16(10, 0x0112, little); view.setUint16(12, 3, little);
+  view.setUint32(14, 1, little); view.setUint16(18, orientation, little);
+  return bytes;
+}
+function jpegWithExif(tiff, afterSof = false) {
+  const payload = Buffer.concat([Buffer.from('Exif\0\0'), Buffer.from(tiff)]);
+  const size = payload.length + 2;
+  const exif = Buffer.concat([Buffer.from([0xff, 0xe1, size >> 8, size & 255]), payload]);
+  const sof = Buffer.from([0xff, 0xc0, 0, 8, 8, 0x1f, 0x40, 0x2e, 0xe0, 1]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), ...(afterSof ? [sof, exif] : [exif, sof]), Buffer.from([0xff, 0xd9])]);
+}
+function pngChunk(type, payload) {
+  const bytes = new Uint8Array(payload.length + 12), view = new DataView(bytes.buffer);
+  view.setUint32(0, payload.length); bytes.set(Buffer.from(type), 4); bytes.set(payload, 8);
+  return bytes;
+}
+function pngWithExif(tiff, afterIdat = false) {
+  const ihdr = new Uint8Array(13), view = new DataView(ihdr.buffer);
+  view.setUint32(0, 12000); view.setUint32(4, 8000);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr),
+    ...(afterIdat ? [pngChunk('IDAT', new Uint8Array(1))] : []), pngChunk('eXIf', tiff), pngChunk('IEND', [])]);
+}
 
 test('a PNG signature accepts an empty MIME and filename with no extension', async () => {
   const result = await classifyFile(file(png(2048, 1024)));
@@ -68,6 +95,75 @@ test('truncated or malformed JPEG dimensions are unknown, never invented', async
     const result = await classifyFile(file(bytes));
     assert.equal(result.kind, 'image'); assert.equal(result.width, undefined);
   }
+});
+
+test('JPEG EXIF orientation keeps encoded dimensions and supplies correctly oriented display dimensions', async () => {
+  for (const little of [true, false]) for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const result = await classifyFile(file(jpegWithExif(exifTiff(orientation, little))));
+    assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+    assert.equal(result.orientation, orientation);
+    assert.equal(result.displayWidth, orientation >= 5 ? 8000 : 12000);
+    assert.equal(result.displayHeight, orientation >= 5 ? 12000 : 8000);
+  }
+});
+
+test('JPEG orientation metadata after SOF is read before the compressed scan', async () => {
+  const result = await classifyFile(file(jpegWithExif(exifTiff(6), true)));
+  assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+  assert.equal(result.orientation, 6); assert.equal(result.displayWidth, 8000); assert.equal(result.displayHeight, 12000);
+});
+
+test('malformed JPEG EXIF fields default safely without altering verified dimensions', async () => {
+  const mutations = [
+    bytes => { bytes[0] = 0; },
+    bytes => { new DataView(bytes.buffer).setUint16(2, 43, true); },
+    bytes => { new DataView(bytes.buffer).setUint32(4, 0xffffffff, true); },
+    bytes => { new DataView(bytes.buffer).setUint32(4, 2, true); },
+    bytes => { new DataView(bytes.buffer).setUint16(8, 0xffff, true); },
+    bytes => { new DataView(bytes.buffer).setUint16(12, 4, true); },
+    bytes => { new DataView(bytes.buffer).setUint32(14, 2, true); },
+    bytes => { new DataView(bytes.buffer).setUint16(18, 0, true); },
+    bytes => { new DataView(bytes.buffer).setUint16(18, 9, true); }
+  ];
+  for (const mutate of mutations) {
+    const tiff = exifTiff(6); mutate(tiff);
+    const result = await classifyFile(file(jpegWithExif(tiff)));
+    assert.equal(result.orientation, 1); assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+    assert.equal(result.displayWidth, 12000); assert.equal(result.displayHeight, 8000);
+  }
+  for (const length of [0, 7, 9, 20, 25]) {
+    const result = await classifyFile(file(jpegWithExif(exifTiff(6).slice(0, length))));
+    assert.equal(result.orientation, 1); assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+  }
+});
+
+test('PNG eXIf uses the same bounded endian-aware orientation parser', async () => {
+  for (const little of [true, false]) for (const orientation of [1, 3, 6, 8]) {
+    const result = await classifyFile(file(pngWithExif(exifTiff(orientation, little), true)));
+    assert.equal(result.width, 12000); assert.equal(result.height, 8000); assert.equal(result.orientation, orientation);
+    assert.equal(result.displayWidth, orientation >= 5 ? 8000 : 12000);
+    assert.equal(result.displayHeight, orientation >= 5 ? 12000 : 8000);
+  }
+});
+
+test('malformed PNG eXIf lengths and pointers cannot escape the bounded header', async () => {
+  const truncatedTiff = pngWithExif(exifTiff(6).slice(0, 25));
+  const badPointerTiff = exifTiff(6); new DataView(badPointerTiff.buffer).setUint32(4, 0xffffffff, true);
+  const badChunk = new Uint8Array(pngWithExif(exifTiff(6)));
+  new DataView(badChunk.buffer).setUint32(33, 0xffffffff);
+  for (const bytes of [truncatedTiff, pngWithExif(badPointerTiff), badChunk]) {
+    const result = await classifyFile(file(bytes));
+    assert.equal(result.orientation, 1); assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+  }
+});
+
+test('orientation beyond the header read is not guessed or read through a full-file fallback', async () => {
+  const base = pngWithExif(exifTiff(6));
+  const bytes = Buffer.concat([base.subarray(0, 33), pngChunk('tEXt', new Uint8Array(HEADER_BYTES)), base.subarray(33)]);
+  const input = file(bytes); input.arrayBuffer = () => { throw new Error('Full-file read'); };
+  const result = await classifyFile(input);
+  assert.equal(result.orientation, 1); assert.equal(result.width, 12000); assert.equal(result.height, 8000);
+  assert.deepEqual(input.reads, [[0, HEADER_BYTES]]);
 });
 
 test('GIF logical canvas dimensions are preflighted for both versions', async () => {

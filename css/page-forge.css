@@ -904,7 +904,7 @@ body.forge-app .img-footer { flex-wrap: wrap; }
 body.forge-app .binding-options > summary { display: none; cursor: pointer; min-height: 52px; font: 400 19px/1.5 var(--forge-heading); color: var(--forge-ice); }
 body.forge-app .binding-options > summary span { display: block; margin-top: 4px; font: 400 14px/1.5 var(--forge-ui); color: #a9c7d6; }
 body.forge-app .quality-lossless { padding: 11px 12px; color: var(--forge-mist); font-size: 14px; border-left: 2px solid var(--forge-light); background: #0b2a42; }
-body.forge-app .export-freshness { margin-top: 14px; padding: 12px 16px; border-left: 2px solid var(--forge-gold); color: #dfd0ab; background: #172436; font-size: 14px; }
+body.forge-app .export-freshness { margin-top: 14px; padding: 12px 16px; border-left: 2px solid var(--forge-gold); color: #dfd0ab; background: #172436; font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 body.forge-app.has-doc .convert-section.export-dock {
   position: fixed; z-index: 300; bottom: 16px;
   left: max(30px, calc((100vw - 1380px) / 2));

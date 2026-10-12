@@ -4,7 +4,9 @@
   'use strict';
   const MiB = 1024 * 1024;
   const limits = Object.freeze({ maxSide: 8192, maxPixels: 16000000,
-    maxImageBytes: 32 * MiB, maxPdfBytes: 50 * MiB, maxRetainedBytes: 128 * MiB,
+    maxImageBytes: 32 * MiB, maxImageInputBytes: 256 * MiB,
+    maxSourcePixels: 256000000, maxSourceSide: 65535,
+    maxPdfBytes: 50 * MiB, maxRetainedBytes: 128 * MiB,
     maxPages: 200, maxExportPixels: 64000000, maxCachePixels: 16000000,
     maxPdfPreviewSide: 2400, maxOutputBytes: 128 * MiB });
   const allocations = new Map();
@@ -34,7 +36,7 @@
     return assertRaster(image.naturalWidth, image.naturalHeight, 'Decoded image');
   }
   function assertFileBytes(file, kind) {
-    const maximum = kind === 'pdf' ? limits.maxPdfBytes : limits.maxImageBytes;
+    const maximum = kind === 'pdf' ? limits.maxPdfBytes : limits.maxImageInputBytes;
     if (!Number.isSafeInteger(file.size) || file.size < 0) fail('The file size could not be verified.');
     if (file.size > maximum) fail(`${kind === 'pdf' ? 'PDF' : 'Image'} exceeds the ${maximum / MiB} MB file limit.`);
   }
@@ -44,8 +46,32 @@
       if (!validSize(classification.width, classification.height)) {
         fail('Image dimensions could not be verified safely. Convert this file to PNG or JPEG first.');
       }
-      assertRaster(classification.width, classification.height);
+      if (classification.width > limits.maxSourceSide || classification.height > limits.maxSourceSide ||
+          classification.width > limits.maxSourcePixels / classification.height) {
+        fail('Source image exceeds 256 megapixels or 65,535 pixels on a side. Reduce it before importing.');
+      }
     }
+  }
+  function fitImageSize(width, height) {
+    if (!validSize(width, height)) fail('Image dimensions must be positive whole numbers.');
+    const scale = Math.min(1, limits.maxSide / width, limits.maxSide / height,
+      Math.sqrt(limits.maxPixels / width / height));
+    const fitted = { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };
+    assertRaster(fitted.width, fitted.height, 'Working image');
+    return fitted;
+  }
+  function planImageImport(file, classification) {
+    preflightFile(file, classification);
+    const sourceWidth = classification.displayWidth || classification.width;
+    const sourceHeight = classification.displayHeight || classification.height;
+    const fitted = fitImageSize(sourceWidth, sourceHeight);
+    // Leave room for the 320-pixel thumbnail without retaining an oversized
+    // source alongside its working copy. Existing images/history keep ownership.
+    const available = limits.maxRetainedBytes - retainedBytes - 256 * 1024;
+    if (available < 1024) fail('The 128 MB working-file limit was reached. Use Free undo history or remove pages before adding more.');
+    const maxBytes = Math.min(limits.maxImageBytes, available);
+    return { ...fitted, sourceWidth, sourceHeight, maxBytes,
+      needsNormalization: fitted.width !== sourceWidth || fitted.height !== sourceHeight || file.size > maxBytes };
   }
   function assertPageCount(adding, existing = 0) {
     if (!Number.isSafeInteger(adding) || adding < 0 || !Number.isSafeInteger(existing) || existing < 0 ||
@@ -160,7 +186,7 @@
     downloads.delete(key);
   }
   window.PhotoPdfLimits = Object.freeze({ limits, assertRaster, assertDecodedImage, assertFileBytes,
-    preflightFile, assertPageCount, reserveBytes, releaseBytes, leaseBytes, trackUrl, forgetUrl: releaseBytes,
+    preflightFile, fitImageSize, planImageImport, assertPageCount, reserveBytes, releaseBytes, leaseBytes, trackUrl, forgetUrl: releaseBytes,
     pdfRenderSize, assertPdfViewport, cacheAdmit, enqueueDecode, assertExport, assertOutputBytes,
     reserveDownload, releaseDownload,
     stats: () => ({ retainedBytes, allocations: allocations.size, downloadBytes, downloads: downloads.size }) });

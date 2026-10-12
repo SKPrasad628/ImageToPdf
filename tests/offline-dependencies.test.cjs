@@ -2,9 +2,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 const { test } = require('node:test');
 const { check, dependencies } = require('../scripts/dependency-check.cjs');
+const { checkApplicationAssets } = require('../scripts/application-assets.cjs');
 
 const root = path.resolve(__dirname, '..');
 const localFile = relative => path.join(root, relative);
@@ -33,23 +35,11 @@ test('PDF.js ships matching parser/worker, complete rendering assets and license
 });
 
 test('application scripts, styles and fonts have no remote resource dependencies', () => {
-  const html = fs.readFileSync(localFile('index.html'), 'utf8');
-  const tags = [...html.matchAll(/<(?:script|link)\b[^>]*?(?:src|href)=["']([^"']+)["'][^>]*>/gi)];
-  assert.ok(tags.length >= 10);
-  for (const stylesheet of ['css/styles.css', 'css/fonts.css', 'css/page-forge.css']) {
-    assert.ok(tags.some(([, resource]) => resource === stylesheet), `${stylesheet} is loaded by the app`);
-  }
-  for (const [, resource] of tags) {
-    assert.doesNotMatch(resource, /^(?:https?:)?\/\//i);
-    assert.ok(fs.existsSync(localFile(resource)), resource);
-  }
-  for (const stylesheet of ['css/styles.css', 'css/fonts.css', 'css/page-forge.css']) {
-    const css = fs.readFileSync(localFile(stylesheet), 'utf8');
-    assert.doesNotMatch(css, /(?:url\(\s*["']?|@import\s*["'])\s*(?:https?:)?\/\//i);
-    for (const [, resource] of css.matchAll(/url\(\s*["']?([^\s"')]+)["']?\s*\)/gi)) {
-      if (/^(?:data:|#)/i.test(resource)) continue;
-      assert.ok(fs.existsSync(path.resolve(path.dirname(localFile(stylesheet)), resource)), `${stylesheet}: ${resource}`);
-    }
+  const { files } = checkApplicationAssets();
+  for (const resource of ['css/styles.css', 'css/fonts.css', 'css/page-forge.css',
+    'css/minimal-ui.css', 'css/minimal-editor.css', 'js/large-image-worker.js',
+    'vendor/pdf-lib/pdf-lib.esm.min.mjs']) {
+    assert.ok(files.includes(resource), `${resource} is followed by the app resource check`);
   }
   for (const file of ['js/pdf-loader.js', 'js/pdf-preserve.js']) {
     const source = fs.readFileSync(localFile(file), 'utf8');
@@ -57,6 +47,58 @@ test('application scripts, styles and fonts have no remote resource dependencies
     assert.match(source, /new URL\('\.\.\/vendor\//);
     assert.match(source, /document\.currentScript\.src/);
   }
+});
+
+function assetFixture(t, files) {
+  const prefix = path.join(os.tmpdir(), 'page-forge-assets-');
+  const directory = fs.mkdtempSync(prefix);
+  t.after(() => {
+    const absolute = path.resolve(directory);
+    assert.ok(absolute.startsWith(path.resolve(prefix)), 'cleanup stays inside its created temporary folder');
+    fs.rmSync(absolute, { recursive: true, force: true });
+  });
+  for (const [relative, content] of Object.entries(files)) {
+    const filename = path.join(directory, relative);
+    fs.mkdirSync(path.dirname(filename), { recursive: true });
+    fs.writeFileSync(filename, content);
+  }
+  return directory;
+}
+
+test('the resource check follows nested stylesheets and their relative font URLs', t => {
+  const directory = assetFixture(t, {
+    'index.html': '<link rel="stylesheet" href="css/ui.css">',
+    'css/ui.css': '@import "components/editor.css";',
+    'css/components/editor.css': '@font-face { src: url("../../fonts/local.ttf"); }',
+    'fonts/local.ttf': 'fixture'
+  });
+  assert.deepEqual(checkApplicationAssets(directory).files,
+    ['css/components/editor.css', 'css/ui.css', 'fonts/local.ttf', 'index.html']);
+});
+
+test('an external request in a newly loaded or nested stylesheet fails packaging', t => {
+  const directory = assetFixture(t, {
+    'index.html': '<link rel="stylesheet" href="css/new-layout.css">',
+    'css/new-layout.css': '@import url("nested.css");',
+    'css/nested.css': '@font-face { src: url("//fonts.example.test/remote.ttf"); }'
+  });
+  assert.throws(() => checkApplicationAssets(directory), /External application resource in css[\\/]nested.css/);
+});
+
+test('missing lazy worker resources fail packaging before a browser needs them', t => {
+  const directory = assetFixture(t, {
+    'index.html': '<script src="js/main.js"></script>',
+    'js/main.js': 'const worker = new URL("worker.js", document.currentScript.src);'
+  });
+  assert.throws(() => checkApplicationAssets(directory), /Missing application resource.*worker.js/);
+});
+
+test('remote lazy module fallbacks fail packaging', t => {
+  const directory = assetFixture(t, {
+    'index.html': '<script src="js/main.js"></script>',
+    'js/main.js': 'import("https://cdn.example.test/pdf.mjs");'
+  });
+  assert.throws(() => checkApplicationAssets(directory), /External application resource.*cdn.example.test/);
 });
 
 test('both display font families ship valid local TrueType files and their original OFL licenses', () => {

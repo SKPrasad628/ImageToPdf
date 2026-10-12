@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { checkApplicationAssets } = require('./application-assets.cjs');
 
 const root = path.resolve(__dirname, '..');
 const vendorRoot = path.join(root, 'vendor');
@@ -59,6 +60,7 @@ function inventory(directory = vendorRoot) {
 }
 
 function check() {
+  checkApplicationAssets(root);
   const expected = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const actual = inventory();
   if (JSON.stringify(actual) !== JSON.stringify(expected.files)) {

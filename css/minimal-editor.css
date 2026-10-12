@@ -1,0 +1,136 @@
+/* Keep the archive palette while giving each editor tool one clear purpose. */
+body.forge-app #editorModal .modal {
+  width: min(760px, 100%);
+  overflow: hidden;
+}
+body.forge-app #editorModal .modal-head {
+  position: static;
+  flex-shrink: 0;
+}
+body.forge-app #editorModal .modal-head h2 {
+  overflow-wrap: anywhere;
+  padding-right: 12px;
+}
+body.forge-app #editorModal .modal-close { flex-shrink: 0; }
+body.forge-app #editorModal .modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+}
+body.forge-app #editorModal .editor-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 14px;
+  gap: 3px;
+}
+body.forge-app #editorModal .et {
+  padding-inline: 7px;
+  min-height: 44px;
+  font-size: 12px;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+body.forge-app #editorModal .et.on {
+  background: #13334c;
+  box-shadow: inset 0 -2px var(--forge-gold);
+}
+body.forge-app #editorModal .editor-preview {
+  min-height: 220px;
+  margin-bottom: 8px;
+  border: 0;
+  padding: 14px;
+}
+body.forge-app #editorModal .editor-preview canvas { cursor: default; }
+body.forge-app #editorModal:has(#editor-tab-crop[aria-selected="true"]) .editor-preview canvas { cursor: crosshair; }
+body.forge-app #editorModal .editor-save-hint {
+  color: var(--forge-mist);
+  font-size: 12px;
+  margin: 0 0 18px;
+}
+body.forge-app #editorModal .editor-tool-hint {
+  margin: 0 0 14px;
+  color: var(--forge-mist);
+  font-size: 12px;
+}
+body.forge-app #editorModal .ctrl-group {
+  padding: 0;
+  margin: 0 0 18px;
+  border: 0;
+  background: transparent;
+}
+body.forge-app #editorModal .ctrl-group h4 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  margin-bottom: 9px;
+}
+body.forge-app #editorModal .editor-current-angle {
+  margin-top: 9px;
+  color: var(--forge-mist);
+  font-size: 12px;
+}
+body.forge-app #editorModal .editor-transform-flip { margin-top: 18px; }
+body.forge-app #editorModal .editor-presets { margin-bottom: 18px; }
+body.forge-app #editorModal .editor-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+body.forge-app #editorModal .editor-disclosure {
+  border-top: 1px solid #29455c;
+  margin-top: 14px;
+}
+body.forge-app #editorModal .editor-disclosure > summary {
+  cursor: pointer;
+  color: var(--forge-mist);
+  font: 400 12px/1.5 var(--forge-ui);
+  padding: 12px 0;
+  min-height: 44px;
+}
+body.forge-app #editorModal .editor-disclosure > summary:hover { color: var(--forge-ice); }
+body.forge-app #editorModal .editor-disclosure[open] > summary { color: var(--forge-ice); }
+body.forge-app #editorModal .editor-secondary-actions { margin-top: 0; }
+body.forge-app #editorModal .editor-secondary-actions[open] { padding-bottom: 14px; }
+body.forge-app #editorModal .editor-secondary-actions .resource-hint {
+  margin: 0 0 12px;
+  color: var(--forge-mist);
+}
+body.forge-app #editorModal .crop-hint {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 14px;
+}
+body.forge-app #editorModal .editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 23px;
+  border-top: 1px solid #31516a;
+  background: #07182e;
+  flex-shrink: 0;
+}
+body.forge-app #editorModal :is(.editor-footer .btn, .editor-tool-actions .btn) { min-height: 44px; }
+body.forge-app #editorModal #saveChangesBtn { min-width: 142px; }
+body.forge-app #editorModal :is(summary, .et):focus-visible {
+  outline: 2px solid var(--forge-light);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  body.forge-app #editorModal { padding: 8px; }
+  body.forge-app #editorModal .modal { max-height: calc(100dvh - 16px); }
+  body.forge-app #editorModal .modal-head { padding: 12px 16px; }
+  body.forge-app #editorModal .modal-head h2 { font-size: 17px; }
+  body.forge-app #editorModal .editor-tabs .editor-icon { display: none; }
+  body.forge-app #editorModal .editor-preview { min-height: 150px; padding: 10px; }
+  body.forge-app #editorModal .editor-preview canvas { max-height: 240px; }
+  body.forge-app #editorModal .size-row { grid-template-columns: 1fr 1fr; }
+  body.forge-app #editorModal .size-row > :last-child { grid-column: 1 / -1; }
+  body.forge-app #editorModal .editor-footer { padding: 12px 16px; }
+  body.forge-app #editorModal .editor-footer .btn { flex: 1; }
+}

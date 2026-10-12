@@ -1,0 +1,241 @@
+✔ a PNG signature accepts an empty MIME and filename with no extension (5.2115ms)
+✔ signatures override misleading MIME and extension (0.6091ms)
+✔ recognized extensions and MIME are fallbacks, with browser decoding still required (0.7656ms)
+✔ extension fallback cannot treat an unrecognized header as verified raster dimensions (0.5785ms)
+✔ JPEG baseline and progressive SOF dimensions are read after metadata segments (0.6507ms)
+✔ truncated or malformed JPEG dimensions are unknown, never invented (0.7438ms)
+✔ JPEG EXIF orientation keeps encoded dimensions and supplies correctly oriented display dimensions (2.8998ms)
+✔ JPEG orientation metadata after SOF is read before the compressed scan (0.5326ms)
+✔ malformed JPEG EXIF fields default safely without altering verified dimensions (1.8595ms)
+✔ PNG eXIf uses the same bounded endian-aware orientation parser (1.4533ms)
+✔ malformed PNG eXIf lengths and pointers cannot escape the bounded header (0.5605ms)
+✔ orientation beyond the header read is not guessed or read through a full-file fallback (1.8691ms)
+✔ GIF logical canvas dimensions are preflighted for both versions (0.4115ms)
+✔ BMP core and top-down Windows dimensions are read without decoding (0.6461ms)
+✔ WebP extended, lossy, and lossless dimensions are read (0.8632ms)
+✔ malformed WebP chunk lengths cannot cause an unbounded parser loop (0.4149ms)
+✔ AVIF is identified without guessing which image item supplies dimensions (0.4376ms)
+✔ PDF signatures route unnamed or misleading image MIME files to PDF import (0.336ms)
+✔ classic TIFF and BigTIFF are explicitly refused regardless of MIME (0.7013ms)
+✔ TIFF extensions and MIME are explicitly refused when no signature is available (0.3455ms)
+✔ unsupported formats and inaccessible files provide a visible reason (0.3892ms)
+✔ header reads stay bounded and never use a full-file arrayBuffer fallback (0.3486ms)
+✔ mixed selections keep exact file order and PDF page groups (12.4278ms)
+✔ overlapping selections finish in picker/drop order rather than decode order (6.2395ms)
+✔ an overlapping selection cannot insert into the middle of a PDF (3.7893ms)
+✔ failed image decode or thumbnail is skipped without disturbing later order (4.2237ms)
+✔ a failed PDF is skipped and the next mixed file still imports (2.8731ms)
+✔ the combined convert picker imports images and PDF page groups in order without silently skipping PDFs (2.3991ms)
+✔ a PDF-only convert selection succeeds and a failed PDF remains visible in the same workspace report (2.1804ms)
+✔ PDF filename fallback uses one classification even for an image MIME type (1.6811ms)
+✔ empty and unsupported selections settle without entering the queue (1.8133ms)
+✔ a FileList is copied when enqueued so later mutations cannot change the selection (2.1307ms)
+✔ cancellation during image decode releases late resources without committing (1.9212ms)
+✔ cancellation during image thumbnail releases late resources without committing (1.593ms)
+✔ shared source and thumbnail leases release only temporary ownership (1.5216ms)
+✔ a new selection after cancellation imports normally after stale decoding settles (2.0177ms)
+✔ canceling a PDF invokes its cleanup subscriptions once and prevents subsequent files (1.7178ms)
+✔ undo-style cancellation stops later files even after earlier files were committed (1.8166ms)
+✔ actual image cancellation aborts decoding and lets the next import run immediately (18.5235ms)
+✔ the actual decoder rejects an already canceled job without allocating an Image (2.3526ms)
+✔ empty and misleading image MIME types import by signature in the original order (2.2056ms)
+✔ unsupported drops have persistent names and reasons, including explicit TIFF refusal (1.8426ms)
+✔ a recognized PDF signature with unknown name and MIME uses PDF import (1.7093ms)
+✖ limits reject oversized or unknown header dimensions before allocating or decoding (5.9109ms)
+✖ oversized compressed files are rejected before image URLs are created (2.7506ms)
+✖ retained-byte admission failure revokes the new input URL and reports the reason (2.69ms)
+✖ decoded dimensions are checked before thumbnail allocation (2.6121ms)
+✔ page-count limits are checked before new images allocate resources (2.3784ms)
+✔ cancellation during bounded header reading prevents late decode and commit (1.9118ms)
+✔ PDF importer failure reasons persist without duplicate generic entries (1.5525ms)
+✔ persistent report renders filenames as text rather than HTML (1.8293ms)
+✔ a selection above 200 files is rejected before copying its FileList or allocating resources (1.5405ms)
+✔ exactly 200 selected files can enter the queue in order (14.9449ms)
+✔ the queue holds at most ten waiting selections and rejects extra selections before copying (2.4569ms)
+✔ a newer selection rejection remains visible when an older accepted import later finishes (1.6843ms)
+✔ missing or stale report DOM methods cannot strand import promises or following selections (3.6077ms)
+✔ signature-detected images normalize Blob MIME while preserving exact input bytes (7.4914ms)
+✔ real classifier plus limits rejects a malformed PNG header before URL or decoding allocation (2.4056ms)
+✖ real PNG Blob headers above the raster cap are rejected before URL allocation (2.7251ms)
+✔ real TIFF input is explicitly skipped without a decoder or image URL allocation (2.1512ms)
+✔ normalization requests one high-quality oriented resize axis, preserves PNG alpha, and releases resources (9.0621ms)
+✔ oversized encoded PNG shrinks by byte ratio while every pass samples the initial bounded bitmap (1.9859ms)
+✔ decoder allocation failures retry smaller requests instead of a full-source decode (1.9712ms)
+✔ decoder fails after bounded retries and never creates a canvas or full-size Image fallback (2.4471ms)
+✔ unknown rotated orientation is corrected from the decoder ratio without stretching (1.6939ms)
+✔ unexpected landscape orientation recovers available resolution instead of retaining a tiny portrait width (1.9536ms)
+✔ decoder ceil rounding cannot admit a raster over the pixel budget (2.9239ms)
+✔ a decoder that ignores resize options has every bitmap closed and is never drawn (1.72ms)
+✔ canvas allocation failure retries smaller canvas from the same bitmap (1.7716ms)
+✔ canvas encoding failures are bounded and all canvases and bitmaps release (2.115ms)
+✔ an encoder that returns another MIME type cannot lose transparency silently (2.0083ms)
+✔ an encoded file too large even at one pixel reports failure without endless retries (1.5431ms)
+✔ canceling pending decode rejects promptly and closes the bitmap when the browser later completes (12.6768ms)
+✔ canceling pending encoding rejects promptly and releases canvas and bitmap (2.5547ms)
+✔ the DOM canvas fallback preserves alpha and zeroes canvas dimensions (1.8757ms)
+✔ without a bounded bitmap decoder, large-image normalization refuses a full-source fallback (1.3583ms)
+✔ worker success returns its PNG, resolves its sibling script URL, and terminates (2.0471ms)
+✔ canceling a worker terminates it immediately and never starts main-thread decoding (1.3788ms)
+✔ worker reports decode failures without trying another full-source decode on the main thread (1.4135ms)
+✔ worker loading failure falls back to a bounded main-thread resize after terminating the worker (1.5539ms)
+✔ invalid worker output is rejected and worker resources are terminated (1.3431ms)
+✔ worker can return a corrected orientation within the plan pixel budget (1.2699ms)
+✔ dedicated worker executes the shared safe core and posts a PNG result (1.5925ms)
+✔ dedicated worker forwards a meaningful decode error (1.5443ms)
+✔ invalid plans fail before creating decoder, canvas, or worker resources (2.9702ms)
+✔ raster limits admit the exact side and pixel boundaries (6.4049ms)
+✔ raster allocation rejects invalid dimension 0 (2.1691ms)
+✔ raster allocation rejects invalid dimension -1 (1.9126ms)
+✔ raster allocation rejects invalid dimension NaN (3.641ms)
+✔ raster allocation rejects invalid dimension Infinity (2.1984ms)
+✔ raster allocation rejects invalid dimension -Infinity (2.8612ms)
+✔ raster allocation rejects invalid dimension 1.5 (2.0239ms)
+✔ raster allocation rejects invalid dimension 10 (2.0306ms)
+✔ raster allocation rejects invalid dimension undefined (2.022ms)
+✔ raster allocation rejects invalid dimension null (1.9883ms)
+✔ decoded-image validation checks both actual browser dimensions (2.1192ms)
+✔ PDF raster plan stays bounded for 100000 × 100000 points (1.9041ms)
+✔ PDF raster plan stays bounded for 100000000 × 1000 points (1.7496ms)
+✔ PDF raster plan stays bounded for 1000 × 100000000 points (1.8599ms)
+✔ PDF raster plan stays bounded for 12000.125 × 48000.875 points (1.5652ms)
+✔ PDF raster plan stays bounded for 0.125 × 0.25 points (1.5977ms)
+✔ PDF raster plan stays bounded for 600.125 × 800.875 points (1.6018ms)
+✔ PDF raster plan rejects invalid physical dimension 0 (2.0105ms)
+✔ PDF raster plan rejects invalid physical dimension -1 (1.8921ms)
+✔ PDF raster plan rejects invalid physical dimension NaN (1.5943ms)
+✔ PDF raster plan rejects invalid physical dimension Infinity (1.7641ms)
+✔ PDF raster plan rejects invalid physical dimension 600 (1.6929ms)
+✔ PDF raster plan rejects invalid physical dimension undefined (1.7392ms)
+✔ file preflight admits large source images while keeping separate working and PDF bounds (2.2612ms)
+✔ file preflight accepts resizable sources and rejects unknown or excessive source dimensions (2.0551ms)
+✔ large-image plans fit the maximum working resolution without stretching or upscaling (2.2088ms)
+✔ large-image plans use display orientation and available encoded-byte budget (2.2126ms)
+✔ page admission accounts for existing pages and rejects invalid counts (2.074ms)
+✔ retained URL allocations share an exact aggregate byte budget (2.1627ms)
+✔ duplicate URL references do not count the same encoded allocation twice (1.8533ms)
+✔ URL and original-PDF reservations use the same retained-byte budget (1.8533ms)
+✔ a rejected reservation does not poison subsequent admission (1.8986ms)
+✔ cache admission uses decoded pixel weight rather than only an image count (4.0543ms)
+✔ cache also caps tiny entries and treats the same source as one entry (2.0192ms)
+✔ the shared decode scheduler starts only one decode at a time (25.1747ms)
+✔ decode failure releases the scheduler for the next request (2.4658ms)
+✔ a queued canceled import is rejected without starting its decode (1.9847ms)
+✔ output size is measured against its exact binary byte length (1.9208ms)
+✔ export admission counts all image pages against the aggregate pixel budget (2.6658ms)
+✔ native pages count against page limits without spending a raster export budget (2.1736ms)
+✔ native export revalidates each captured original PDF size (2.1747ms)
+✔ PDF scaled-viewport validation rejects dimensions outside the rendering cap (2.1758ms)
+✔ invalid resource byte counts cannot alter retained allocation accounting (2.1054ms)
+✔ rotated export bounds count the actual canvas area (2.0775ms)
+✔ explicit PDF image export counts native preview rasters against the pixel budget (2.2055ms)
+✔ retained source dimensions are used when exporting metadata-only images (2.034ms)
+✔ resource metadata has a count cap even for zero-byte allocations (9.9309ms)
+✔ leases defer freeing a pruned original PDF until every consumer releases it (2.1577ms)
+✔ leasing an unknown original source cannot fabricate a reservation (1.8771ms)
+✔ pending downloads have a separate exact aggregate byte budget (2.139ms)
+✔ pending download metadata also has a count cap for tiny files (2.2631ms)
+✔ a duplicate pending download key cannot corrupt byte accounting (1.9077ms)
+✔ invalid pending download sizes leave no reservation (1.995ms)
+ℹ tests 138
+ℹ suites 0
+ℹ pass 133
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 423.2694
+
+✖ failing tests:
+
+test at tests\import-queue.test.cjs:289:1
+✖ limits reject oversized or unknown header dimensions before allocating or decoding (5.9109ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   'blob:good.png-1'
+  - ]
+  
+      at TestContext.<anonymous> (C:\Users\skpra\OneDrive\Desktop\Photo to PDF\tests\import-queue.test.cjs:292:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 'blob:good.png-1' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests\import-queue.test.cjs:299:1
+✖ oversized compressed files are rejected before image URLs are created (2.7506ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /32 MB/. Input:
+  
+  'The large-image tools are unavailable. Reload the page and try again.'
+  
+      at TestContext.<anonymous> (C:\Users\skpra\OneDrive\Desktop\Photo to PDF\tests\import-queue.test.cjs:303:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The large-image tools are unavailable. Reload the page and try again.',
+    expected: /32 MB/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests\import-queue.test.cjs:306:1
+✖ retained-byte admission failure revokes the new input URL and reports the reason (2.69ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   'blob:photo.png-1'
+  - ]
+  
+      at TestContext.<anonymous> (C:\Users\skpra\OneDrive\Desktop\Photo to PDF\tests\import-queue.test.cjs:310:42)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 'blob:photo.png-1' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests\import-queue.test.cjs:314:1
+✖ decoded dimensions are checked before thumbnail allocation (2.6121ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Decoded image is too large/. Input:
+  
+  'The resource size could not be verified.'
+  
+      at TestContext.<anonymous> (C:\Users\skpra\OneDrive\Desktop\Photo to PDF\tests\import-queue.test.cjs:320:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The resource size could not be verified.',
+    expected: /Decoded image is too large/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests\import-queue.test.cjs:434:1
+✖ real PNG Blob headers above the raster cap are rejected before URL allocation (2.7251ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /too large/. Input:
+  
+  'The large-image tools are unavailable. Reload the page and try again.'
+  
+      at TestContext.<anonymous> (C:\Users\skpra\OneDrive\Desktop\Photo to PDF\tests\import-queue.test.cjs:440:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The large-image tools are unavailable. Reload the page and try again.',
+    expected: /too large/,
+    operator: 'match',
+    diff: 'simple'
+  }

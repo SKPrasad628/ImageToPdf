@@ -42,6 +42,9 @@ function harness() {
     return el;
   };
   const controls = [element('saveChangesBtn'), element('applyAllBtn'), element('resize-control'), element('filter-control')];
+  const editorTabs = ['rotate', 'crop', 'resize', 'filters'];
+  const editorDetails = ['editorAngleDetails', 'editorResizeDetails', 'editorCropDetails', 'editorAdjustmentDetails', 'editorBatchDetails', 'editorRevertDetails'];
+  editorTabs.forEach(name => { element('editor-tab-' + name).dataset.editorTab = name; });
   function canvas() {
     const calls = [], fills = [], rotations = [], scales = [];
     const ctx = { calls, filter: 'none', drawImage(image, ...args) { calls.push({ src: image.src, args, filter: this.filter }); } };
@@ -68,7 +71,8 @@ function harness() {
       getElementById: element, querySelector: selector => element(selector),
       querySelectorAll(selector) {
         if (selector.startsWith('#editorModal .modal-body')) return controls;
-        if (selector === '.et-panel') return ['rotate', 'resize', 'crop', 'flip', 'filters'].map(name => element(`panel-${name}`));
+        if (selector === '.et-panel') return editorTabs.map(name => element(`panel-${name}`));
+        if (selector === '#editorModal details') return editorDetails.map(element);
         return [];
       },
       createElement(type) { return type === 'canvas' ? canvas() : element(`created-${++serial}`); },
@@ -143,6 +147,49 @@ test('editor opens a native modal and cancel closes the session and restores its
   assert.equal(h.run('_urlRefs.get("blob:A")'), initialLeaseCount, 'Cancel releases borrowed editor leases');
 });
 
+test('editor tool tabs support arrow keys, wrapping, Home and End with one active panel and focus', async () => {
+  const h = harness(); h.add('A'); await h.open();
+  const press = (name, key) => {
+    const target = h.element('editor-tab-' + name);
+    let prevented = false;
+    h.context.tabKeyEvent = { target, key, preventDefault() { prevented = true; } };
+    h.run('handleEditorTabKey(tabKeyEvent)');
+    return prevented;
+  };
+  assert.equal(h.element('editor-tab-rotate')['aria-selected'], 'true');
+  assert.equal(press('rotate', 'ArrowLeft'), true);
+  assert.equal(h.run('editorTab'), 'filters');
+  assert.equal(h.context.document.activeElement.id, 'editor-tab-filters');
+  assert.equal(h.element('editor-tab-filters').tabIndex, 0);
+  assert.equal(h.element('editor-tab-rotate').tabIndex, -1);
+  assert.equal(h.element('panel-filters').style.display, 'block');
+  assert.equal(h.element('panel-rotate').style.display, 'none');
+  assert.equal(press('filters', 'ArrowRight'), true);
+  assert.equal(h.run('editorTab'), 'rotate');
+  assert.equal(press('rotate', 'End'), true);
+  assert.equal(h.run('editorTab'), 'filters');
+  assert.equal(press('filters', 'Home'), true);
+  assert.equal(h.run('editorTab'), 'rotate');
+  assert.equal(press('rotate', 'Tab'), false, 'Tab keeps its normal browser navigation behavior');
+  h.run("switchEditorTab('flip')");
+  assert.equal(h.run('editorTab'), 'rotate', 'Old Flip callers use the combined transform view');
+  assert.equal(h.state()[0].src, 'blob:A', 'Moving between tools does not commit an edit');
+});
+
+test('precise and bulk editor actions start collapsed for each page without carrying open state forward', async () => {
+  const h = harness(); h.add('A'); h.add('B'); await h.open();
+  for (const id of ['editorAngleDetails', 'editorResizeDetails', 'editorCropDetails', 'editorAdjustmentDetails', 'editorBatchDetails', 'editorRevertDetails']) {
+    assert.equal(h.element(id).open, false);
+    h.element(id).open = true;
+  }
+  h.run('closeEditor()'); await h.open(1);
+  for (const id of ['editorAngleDetails', 'editorResizeDetails', 'editorCropDetails', 'editorAdjustmentDetails', 'editorBatchDetails', 'editorRevertDetails']) {
+    assert.equal(h.element(id).open, false, `${id} should start collapsed on the next page`);
+  }
+  assert.equal(h.run('editorCurrentSrc'), 'blob:B');
+  assert.equal(h.run('editorSession.filterRecipe.length'), 0);
+});
+
 test('saving restores focus after rendering to the same logical page when its original trigger was removed', async () => {
   const h = harness(); h.add('A'); h.run("snapshot('Import')");
   const trigger = h.element('old-page-edit'); trigger.tagName = 'BUTTON'; trigger.focus();
@@ -177,6 +224,37 @@ test('closing from a tool whose trigger is now hidden restores focus to the page
   await h.open(); trigger.getClientRects = () => [];
   h.run('closeEditor()');
   assert.equal(h.context.document.activeElement, h.element('[data-preview-page="0"]'));
+});
+
+for (const view of ['preview', 'layout']) {
+  test(`closing an editor from Help returns focus to the visible mobile ${view} view`, async () => {
+    const h = harness(); h.add('A');
+    const trigger = h.element('toolsEditBtn'); trigger.tagName = 'BUTTON'; trigger.focus();
+    const viewPanel = h.element('workspace-' + view);
+    let calls = 0;
+    h.context.window.PageForgeUI = { focusActivePage() { calls++; viewPanel.focus(); } };
+    await h.open(); trigger.getClientRects = () => [];
+    const railControl = h.element('[data-preview-page="0"]');
+    railControl.getClientRects = () => [];
+    h.run('closeEditor()');
+    assert.equal(calls, 1);
+    assert.equal(h.context.document.activeElement, viewPanel, 'The hidden Pages rail must not receive restored focus');
+    assert.equal(h.run('_editorReturnFocus'), null);
+  });
+}
+
+test('editor focus restoration keeps a visible trigger and uses the file picker when no pages remain', async () => {
+  const h = harness(); h.add('A');
+  const trigger = h.element('visible-edit'); trigger.tagName = 'BUTTON'; trigger.focus();
+  let calls = 0;
+  h.context.window.PageForgeUI = { focusActivePage() { calls++; } };
+  await h.open(); h.run('closeEditor()');
+  assert.equal(h.context.document.activeElement, trigger);
+  assert.equal(calls, 0, 'A visible editor trigger remains the preferred focus target');
+  await h.open(); trigger.isConnected = false;
+  h.run('images = []; closeEditor()');
+  assert.equal(h.context.document.activeElement, h.element('fileInput'));
+  assert.equal(calls, 0, 'The empty workspace does not ask for an active page');
 });
 
 test('filter adjustment, presets, and reset expose current values with spoken units', async () => {
@@ -384,6 +462,7 @@ for (const apply of ['applyResize', 'applyCrop', 'applyFilters']) {
   test(`late ${apply} cannot change a newly opened editor`, async () => {
     const h = harness(); h.add('A'); h.add('B'); await h.open();
     h.run("cropCachedImg = {}; cropCanvasScale = 1; cropRect = {x:0,y:0,w:20,h:20}");
+    if (apply === 'applyFilters') h.run('editorFilters={grayscale:100}');
     const gate = deferred(), started = deferred();
     h.setEncodeHook(async () => { started.resolve(); await gate.promise; });
     const operation = h.run(`${apply}()`); await started.promise;
@@ -643,6 +722,21 @@ test('opening and saving a page-list rotated native PDF preserves text source, p
   assert.equal(h.revoked.includes('blob:PDF'), false);
 });
 
+test('editor quarter-turn PDF rotation preserves native content and survives undo/redo', async () => {
+  const h = harness(); addPdfPage(h, 'PDF');
+  h.run('images[0].pdfSource={sourceId:"source",pageIndex:3}; images[0].originalPdfSource={sourceId:"source",pageIndex:3}; snapshot("Import")');
+  const before = h.state()[0];
+  await h.open(); h.run('quickRotate(90)');
+  assert.equal(await h.run('saveEdits()'), true);
+  assert.equal(h.state()[0].src, before.src);
+  assert.equal(h.state()[0].rotation, 90);
+  assert.deepEqual(h.state()[0].pdfSource, before.pdfSource);
+  assert.deepEqual(h.state()[0].pdfPageSizeMm, before.pdfPageSizeMm);
+  assert.equal(h.encodes.length, 0);
+  h.run('undo()'); assert.equal(h.state()[0].rotation, 0);
+  h.run('redo()'); assert.equal(h.state()[0].rotation, 90);
+});
+
 test('ordinary unchanged Save also preserves an existing flip and effective filter state', async () => {
   const h = harness(); h.add('A');
   h.run('images[0].rotation=45; images[0].flipH=true; images[0].filters={contrast:130}; snapshot("Transform")');
@@ -892,4 +986,98 @@ test('an applied filter saved on one page is not reapplied or propagated by reop
   assert.equal(await h.run('saveEdits(true)'), true);
   assert.deepEqual(h.state(), before); assert.equal(h.encodes.length, 1);
   assert.equal(h.run('history.length'), historyLength);
+});
+
+test('neutral Apply filters keeps native PDF pixels, descriptors, transforms, leases, and history', async () => {
+  const h = harness(); addPdfPage(h, 'A'); addPdfPage(h, 'B');
+  h.run('images[0].pdfSource={sourceId:"native",pageIndex:0}; images[0].rotation=90; images[1].pdfSource={sourceId:"native",pageIndex:1}; images[1].rotation=180; snapshot("Import")');
+  const before = h.state(), historyLength = h.run('history.length'), leases = h.run('JSON.stringify([..._urlRefs])');
+  await h.open();
+  assert.equal(await h.run('applyFilters()'), true);
+  h.run('editorFilters={brightness:100,contrast:100,saturate:100,blur:0,grayscale:0,sepia:0,"hue-rotate":0,invert:0}');
+  assert.equal(await h.run('applyFilters()'), true);
+  assert.equal(h.run('editorSession.pdfSource.sourceId'), 'native');
+  assert.equal(h.run('editorCurrentSrc'), before[0].src);
+  assert.equal(h.run('editorSession.filterRecipe.length'), 0);
+  assert.equal(await h.run('saveEdits(true)'), true);
+  assert.deepEqual(h.state(), before);
+  assert.equal(h.encodes.length, 0);
+  assert.equal(h.run('history.length'), historyLength);
+  assert.equal(h.run('JSON.stringify([..._urlRefs])'), leases);
+});
+
+test('repeated Apply filters activation accepts one step while encoding and remains neutral afterward', async () => {
+  const h = harness(); h.add('A'); h.add('B'); h.run('snapshot("Import")'); await h.open();
+  h.run('editorFilters={contrast:130}');
+  const gate = deferred(), started = deferred();
+  h.setEncodeHook(async () => { started.resolve(); await gate.promise; });
+  const first = h.run('applyFilters()'); await started.promise;
+  const repeated = h.run('applyFilters()');
+  assert.equal(repeated, first, 'Repeated activation waits for the accepted step');
+  gate.resolve(); assert.equal(await first, true); assert.equal(await repeated, true);
+  const working = h.run('editorCurrentSrc');
+  assert.equal(await h.run('applyFilters()'), true);
+  assert.equal(h.run('editorCurrentSrc'), working);
+  assert.equal(h.run('editorSession.filterRecipe.length'), 1);
+  assert.equal(h.encodes.length, 1);
+  h.setEncodeHook(null); assert.equal(await h.run('saveEdits(true)'), true);
+  assert.deepEqual(h.encodes.map(record => [record.calls[0].src, record.calls[0].filter]), [
+    ['blob:A', 'contrast(130%)'], ['blob:B', 'contrast(130%)']
+  ]);
+  assert.equal(h.state()[0].src, working);
+  h.run('undo()'); assert.deepEqual(h.state().map(page => page.src), ['blob:A', 'blob:B']);
+});
+
+test('reset invalidates an in-flight Apply guard and accepts a fresh filter step in the same session', async () => {
+  const h = harness(); h.add('A'); h.add('B'); await h.open();
+  h.run('editorFilters={grayscale:100}');
+  const gate = deferred(), started = deferred();
+  h.setEncodeHook(async record => { if (record.calls[0].filter === 'grayscale(100%)') { started.resolve(); await gate.promise; } });
+  const canceled = h.run('applyFilters()'); await started.promise;
+  h.run('revertAll(); editorFilters={sepia:40}');
+  const fresh = h.run('applyFilters()'); assert.notEqual(fresh, canceled);
+  gate.resolve(); assert.equal(await canceled, false); assert.equal(await fresh, true);
+  assert.equal(h.run('editorSession.filterRecipe.length'), 1);
+  const working = h.run('editorCurrentSrc'); assert.equal(await h.run('saveEdits(true)'), true);
+  assert.deepEqual(h.encodes.map(record => [record.calls[0].src, record.calls[0].filter]), [
+    ['blob:A', 'grayscale(100%)'], ['blob:A', 'sepia(40%)'], ['blob:B', 'sepia(40%)']
+  ]);
+  assert.equal(h.state()[0].src, working);
+});
+
+test('quarter-turn-only batch keeps each native page and adds the chosen rotation to its own orientation', async () => {
+  const h = harness(); addPdfPage(h, 'A'); addPdfPage(h, 'B', 127, 50.8);
+  h.run('images[0].pdfSource={sourceId:"native",pageIndex:0}; images[1].pdfSource={sourceId:"native",pageIndex:1}; images[0].rotation=90; images[1].rotation=270; snapshot("Import")');
+  const before = h.state(); await h.open(); h.run('quickRotate(90)');
+  assert.equal(await h.run('saveEdits(true)'), true);
+  const after = h.state(); assert.deepEqual(after.map(page => page.rotation), [180, 0]);
+  assert.deepEqual(after.map(page => page.src), before.map(page => page.src));
+  assert.deepEqual(after.map(page => page.pdfSource), before.map(page => page.pdfSource));
+  assert.deepEqual(after.map(page => page.pdfPageSizeMm), before.map(page => page.pdfPageSizeMm));
+  assert.equal(h.encodes.length, 0);
+  h.run('undo()'); assert.deepEqual(h.state(), before);
+  h.run('redo()'); assert.deepEqual(h.state(), after);
+});
+
+test('filter batch preserves both an already baked rotation and a native quick rotation at the same displayed size', async () => {
+  const h = harness(); h.add('A'); addPdfPage(h, 'B'); addPdfPage(h, 'C');
+  h.run('images[2].pdfSource={sourceId:"native",pageIndex:2}; images[2].originalPdfSource={sourceId:"native",pageIndex:2}; snapshot("Import")');
+  await h.open(1); h.run('quickRotate(90)'); assert.equal(await h.run('saveEdits()'), true);
+  const bakedB = h.state()[1].src;
+  h.run('images[2].rotation=90; snapshot("Quick rotate C")');
+  const before = h.state(); await h.open(0); h.run('editorFilters={grayscale:100}');
+  await h.run('applyFilters()'); const workingA = h.run('editorCurrentSrc');
+  const encodeStart = h.encodes.length; assert.equal(await h.run('saveEdits(true)'), true);
+  const batch = h.encodes.slice(encodeStart);
+  assert.deepEqual(batch.map(record => [record.calls[0].src, record.rotations[0], record.width, record.height]), [
+    [bakedB, 0, 2970, 2100], ['blob:C', Math.PI / 2, 2970, 2100]
+  ]);
+  assert.ok(batch.every(record => record.calls[0].filter === 'grayscale(100%)'));
+  assert.equal(h.state()[0].src, workingA, 'A reuses its applied pixels');
+  assert.deepEqual(h.state().slice(1).map(page => page.pdfPageSizeMm), [
+    { width: 297, height: 210 }, { width: 297, height: 210 }
+  ]);
+  assert.equal(h.state()[2].pdfSource, undefined, 'C becomes an image after an explicit pixel filter');
+  assert.deepEqual(h.state()[2].originalPdfSource, { sourceId: 'native', pageIndex: 2 });
+  h.run('undo()'); assert.deepEqual(h.state(), before);
 });

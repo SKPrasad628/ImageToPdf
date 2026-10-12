@@ -1,0 +1,35 @@
+{
+  "exports": {
+    "revised": {
+      "exactOriginal": false,
+      "nativePages": 3,
+      "imagePages": 0,
+      "scaledDownPages": 0,
+      "croppedPages": 0,
+      "adjustments": [
+        "Form field “shared” from “source-a.pdf” was renamed to “shared_copy2_1” to keep its values independent.",
+        "Duplicated tagged pages received independent accessibility structure and parent indexes."
+      ],
+      "notice": "Native PDF content retained with rebuilt forms, bookmarks, links, attachments and supported accessibility structure where present. Signed and encrypted PDFs require untouched export; known unsafe or unsupported structures block native changes. Changes: Form field “shared” from “source-a.pdf” was renamed to “shared_copy2_1” to keep its values independent. Duplicated tagged pages received independent accessibility structure and parent indexes.",
+      "byteLength": 7062
+    },
+    "merged": {
+      "exactOriginal": false,
+      "nativePages": 4,
+      "imagePages": 0,
+      "scaledDownPages": 0,
+      "croppedPages": 0,
+      "adjustments": [
+        "Only the first source document’s opening view or action was retained in the merged document.",
+        "Form field “shared” from “source-b.pdf” was renamed to “shared_source2_1” to keep its values independent.",
+        "Accessibility keeps whole source hierarchies when pages from different documents or duplicates are interleaved."
+      ],
+      "notice": "Native PDF content retained with rebuilt forms, bookmarks, links, attachments and supported accessibility structure where present. Signed and encrypted PDFs require untouched export; known unsafe or unsupported structures block native changes. Changes: Only the first source document’s opening view or action was retained in the merged document. Form field “shared” from “source-b.pdf” was renamed to “shared_source2_1” to keep its values independent. Accessibility keeps whole source hierarchies when pages from different documents or duplicates are interleaved.",
+      "byteLength": 8777
+    }
+  },
+  "attachmentHex": {
+    "a": "00ff0102412d70726f6f660a",
+    "b": "ff000304422d70726f6f660a"
+  }
+}

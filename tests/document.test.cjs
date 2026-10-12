@@ -161,6 +161,21 @@ test('switching tabs redraws the destination from the current document', () => {
   assert.equal(h.element('settingsBar').parentElement, h.element('settingsMountConvert'));
 });
 
+test('large-image import adjustment survives undo, redo, and duplication with the fitted original', () => {
+  const h = harness(); h.add('Large');
+  h.run(`images[0].importAdjustment = { sourceWidth: 12000, sourceHeight: 8000, width: 4898, height: 3265,
+    sourceBytes: 10000000, workingBytes: 2000000 }; snapshot('Fitted import'); duplicateImage(0);`);
+  const adjustment = plain(h.run('images[0].importAdjustment'));
+  assert.deepEqual(plain(h.run('images[1].importAdjustment')), adjustment);
+  const original = h.run('images[0].originalSrc');
+  h.run('undo()');
+  assert.deepEqual(plain(h.run('images[0].importAdjustment')), adjustment);
+  assert.equal(h.run('images[0].originalSrc'), original);
+  h.run('redo()');
+  assert.deepEqual(plain(h.run('images[1].importAdjustment')), adjustment);
+  assert.equal(h.run('images[1].originalSrc'), original);
+});
+
 for (const operation of ['reverseOrder()', 'sortByName()', "changeImageOrder(0,2,'Reorder')", 'movePage(2,-1)']) {
   test(`${operation} keeps both selections and multi-selection on the same pages`, () => {
     const h = harness(), before = seedSelection(h);
