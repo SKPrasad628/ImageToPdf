@@ -65,7 +65,7 @@ function harness(images = [], settings = {}) {
     FakePDF.prototype[method] = function (...args) { this.record.calls.push([method, ...args]); };
   }
   const context = vm.createContext({
-    images, preserveOriginalQuality: false, currentTab: 'convert', exportInProgress: false,
+    images, selectedConvertCard: 0, preserveOriginalQuality: false, currentTab: 'convert', exportInProgress: false,
     pdfSources: new Map(), copyPdfSource: value => value, updatePdfContentUI() {},
     window: { jspdf: { jsPDF: FakePDF } },
     document: { getElementById: element },

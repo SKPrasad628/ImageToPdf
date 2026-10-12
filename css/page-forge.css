@@ -902,6 +902,8 @@ body.forge-app .img-card.selected .page-check { border-color: var(--forge-gold);
 body.forge-app .page-viewing { font-size: 11px; color: var(--forge-light); padding: 2px 5px; border: 1px solid #326a84; background: #082438; }
 body.forge-app .img-footer { flex-wrap: wrap; }
 body.forge-app .binding-options > summary { display: none; cursor: pointer; min-height: 52px; font: 400 19px/1.5 var(--forge-heading); color: var(--forge-ice); }
+body.forge-app .crop-page-layout label { display: flex; align-items: center; gap: 9px; min-height: 44px; cursor: pointer; }
+body.forge-app .crop-page-layout input { width: 18px; height: 18px; accent-color: var(--forge-light); }
 body.forge-app .binding-options > summary span { display: block; margin-top: 4px; font: 400 14px/1.5 var(--forge-ui); color: #a9c7d6; }
 body.forge-app .quality-lossless { padding: 11px 12px; color: var(--forge-mist); font-size: 14px; border-left: 2px solid var(--forge-light); background: #0b2a42; }
 body.forge-app .export-freshness { margin-top: 14px; padding: 12px 16px; border-left: 2px solid var(--forge-gold); color: #dfd0ab; background: #172436; font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }

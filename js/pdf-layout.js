@@ -18,6 +18,11 @@ function rotatedPdfPageSize(size, rotation = 0) {
 }
 
 function computePdfLayout(image, rendered, settings) {
+  // A crop trims this page's paper as well as its pixels. Other pages retain
+  // the document layout, and this page can explicitly opt back into that layout.
+  if (image.cropPageBounds && image.cropToBounds !== false) {
+    settings = { ...settings, pageSize: 'fit', orientation: 'auto', imgFit: 'contain', margin: 0 };
+  }
   const width = Number(rendered.w), height = Number(rendered.h);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw new Error('The image has invalid dimensions.');
@@ -35,8 +40,8 @@ function computePdfLayout(image, rendered, settings) {
   const dpi = needsPhotoDpi ? suppliedDpi : 300;
   let printWidth = width * 25.4 / dpi, printHeight = height * 25.4 / dpi;
   if (physicalPage) {
-    // Cropping/resizing edits the content; it keeps the imported paper size.
-    // Fit the edited aspect ratio inside that physical box without stretching.
+    // The editor updates physical bounds when cropping imported PDF content.
+    // Fit the working pixels inside that physical box without stretching.
     const scale = Math.min(physicalPage.width / width, physicalPage.height / height);
     printWidth = width * scale;
     printHeight = height * scale;

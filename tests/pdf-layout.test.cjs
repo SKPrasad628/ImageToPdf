@@ -44,6 +44,26 @@ test('an A4 PDF keeps its physical page size despite raster scale, rounding, and
   }
 });
 
+test('a cropped photo uses trimmed page bounds by default without changing other pages', () => {
+  const crop = { cropPageBounds: { width: 900, height: 300 }, cropToBounds: true };
+  const settings = { pageSize: 'a4', orientation: 'portrait', margin: 20, imgFit: 'actual', dpi: 300 };
+  const trimmed = layout(crop, rendered(900, 300), settings);
+  rectangle(trimmed.page, { width: 76.2, height: 25.4 });
+  rectangle(trimmed.image, { x: 0, y: 0, width: 76.2, height: 25.4 });
+  assert.equal(trimmed.clip, null);
+  const onPaper = layout({ ...crop, cropToBounds: false }, rendered(900, 300), settings);
+  rectangle(onPaper.page, { width: 210, height: 297 });
+  rectangle(layout({}, rendered(900, 300), settings).page, { width: 210, height: 297 });
+});
+
+test('a cropped PDF uses its reduced physical box and a quick rotation follows that box', () => {
+  const image = { cropPageBounds: { width: 300, height: 600 }, cropToBounds: true,
+    pdfPageSizeMm: { width: 30, height: 60 }, rotation: 90 };
+  const trimmed = layout(image, rendered(600, 300), { pageSize: 'a4', margin: 20, dpi: 72 });
+  rectangle(trimmed.page, { width: 60, height: 30 });
+  rectangle(trimmed.image, { x: 0, y: 0, width: 60, height: 30 });
+});
+
 test('mixed imported page dimensions are retained separately', () => {
   for (const [width, height] of [[210, 297], [215.9, 279.4], [127, 50.8], [508, 254]]) {
     const result = layout({ pdfPageSizeMm: { width, height } }, rendered(1440, 720), {

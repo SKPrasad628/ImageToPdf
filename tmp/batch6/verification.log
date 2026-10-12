@@ -1,0 +1,162 @@
+{
+  "date": "2026-10-12",
+  "status": "passed",
+  "method": "pypdf strict reopening and inspection of each page's painted image XObject; PIL and NumPy pixel comparisons",
+  "documents": [
+    {
+      "file": "tmp\\batch6\\adjustments.pdf",
+      "bytes": 8784,
+      "pages": 2,
+      "page_details": [
+        {
+          "page": 1,
+          "painted_xobject": "/I0",
+          "image_pixels": [
+            400,
+            240
+          ],
+          "paper_mm": [
+            297.0,
+            210.0
+          ],
+          "pdf_rotation": 0,
+          "grayscale_values": [
+            0,
+            62,
+            67,
+            139,
+            180
+          ]
+        },
+        {
+          "page": 2,
+          "painted_xobject": "/I1",
+          "image_pixels": [
+            240,
+            400
+          ],
+          "paper_mm": [
+            210.0,
+            297.0
+          ],
+          "pdf_rotation": 0,
+          "grayscale_values": [
+            0,
+            62,
+            67,
+            139,
+            180
+          ]
+        }
+      ]
+    },
+    {
+      "file": "tmp\\batch6\\partial.pdf",
+      "bytes": 5567,
+      "pages": 1,
+      "page_details": [
+        {
+          "page": 1,
+          "painted_xobject": "/I0",
+          "image_pixels": [
+            400,
+            240
+          ],
+          "paper_mm": [
+            297.0,
+            210.0
+          ],
+          "pdf_rotation": 0,
+          "grayscale_values": [
+            0,
+            62,
+            67,
+            139,
+            180
+          ]
+        }
+      ]
+    },
+    {
+      "file": "tmp\\batch6\\native.pdf",
+      "source": "tmp/issue-16/source-a.pdf",
+      "bytes": 4952,
+      "pages": 2,
+      "rotations": [
+        90,
+        0
+      ],
+      "checks": {
+        "native_text_and_vector_content_streams_identical_to_source": true,
+        "extracted_text_identical_to_source": true,
+        "widget_appearance_stream_hashes_identical_to_source": true,
+        "fields_and_widget_values_retained": true,
+        "links_bookmarks_named_destinations_target_actual_output_pages": true,
+        "attachment_bytes_match_source": true,
+        "structure_ancestry_and_parent_tree_ownership_valid": true
+      },
+      "fields": {
+        "shared.name": "Alice A - editable",
+        "shared.approved": "/Yes"
+      },
+      "links": [
+        {
+          "page": 1,
+          "targetPage": 2
+        }
+      ],
+      "outlines": [
+        {
+          "title": "A: summary",
+          "page": 1
+        },
+        {
+          "title": "A: details",
+          "page": 2
+        }
+      ],
+      "attachments": [
+        {
+          "name": "proof.bin",
+          "bytes": 12,
+          "hex": "00ff0102412d70726f6f660a"
+        }
+      ],
+      "structure_elements": 10,
+      "marked_content_references": 5,
+      "tagged_object_references": 3,
+      "parent_tree_keys": 5,
+      "widgets": [
+        {
+          "page": 1,
+          "name": "shared.name",
+          "value": "Alice A - editable",
+          "appearanceBytes": 305
+        },
+        {
+          "page": 2,
+          "name": "shared.approved",
+          "value": "/Yes",
+          "appearanceBytes": 261
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "identical_original_fixture_images": true,
+    "current_page_retains_400x240_pixels": true,
+    "target_retains_clockwise_90_degree_orientation_at_240x400_pixels": true,
+    "target_vs_clockwise_current_max_channel_error": 0,
+    "bounded_b_and_w_contrast_105_fixture_max_level_error": 1.0433,
+    "bounded_filter_tolerance_in_output_levels": 2,
+    "black_orientation_marker_retained": true,
+    "partial_included_page_identical_to_complete_source_page": true,
+    "portrait_landscape_paper_geometry_agrees_with_pixels": true
+  },
+  "limits": [
+    "These checks inspect one controlled browser image fixture and its partial export, plus one native PDF fixture after a page rotation and neutral Apply.",
+    "The page-to-page comparison verifies propagation and retained orientation; application tests establish recipe ownership and once-only application behavior.",
+    "This does not establish all filter combinations, blur fidelity, other browsers, physical devices, or accessibility acceptance.",
+    "The native tag checks validate this fixture's object ancestry and ParentTree; they do not establish universal PDF/UA conformance or screen-reader acceptance."
+  ]
+}

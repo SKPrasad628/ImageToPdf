@@ -16,7 +16,7 @@ function deferred() {
 // Load the actual application scripts. Only browser/encoding boundaries are
 // mocked, so races can be paused precisely without a browser or dependencies.
 function harness() {
-  const elements = new Map(), revoked = [], resources = new Map(), encodes = [], toasts = [], rafs = new Map();
+  const elements = new Map(), revoked = [], resources = new Map(), encodes = [], toasts = [], rafs = new Map(), documentListeners = new Map();
   let serial = 0, rafSerial = 0, encodeHook = null, decodeHook = null, thumbHook = null;
   const element = id => {
     if (elements.has(id)) return elements.get(id);
@@ -55,7 +55,11 @@ function harness() {
     ctx.fills = fills;
     ctx.rotations = rotations;
     ctx.scales = scales;
-    return { width: 0, height: 0, ctx, getContext: () => ctx };
+    const captures = new Set();
+    return { width: 0, height: 0, ctx, getContext: () => ctx,
+      getBoundingClientRect() { return this.displayRect || { left: 0, top: 0, width: this.width, height: this.height }; },
+      setPointerCapture(id) { captures.add(id); }, hasPointerCapture(id) { return captures.has(id); },
+      releasePointerCapture(id) { captures.delete(id); } };
   }
   function mint(kind, data) {
     const url = `blob:${kind}-${++serial}`;
@@ -76,9 +80,11 @@ function harness() {
         return [];
       },
       createElement(type) { return type === 'canvas' ? canvas() : element(`created-${++serial}`); },
-      body: element('body'), activeElement: { tagName: 'BODY' }, addEventListener() {}, removeEventListener() {}
+      body: element('body'), activeElement: { tagName: 'BODY' },
+      addEventListener(type, handler) { if (!documentListeners.has(type)) documentListeners.set(type, new Set()); documentListeners.get(type).add(handler); },
+      removeEventListener(type, handler) { documentListeners.get(type)?.delete(handler); }
     },
-    window: { addEventListener() {} }, localStorage: { getItem() { return null; }, setItem() {} },
+    window: { PointerEvent: function PointerEvent() {}, addEventListener() {} }, localStorage: { getItem() { return null; }, setItem() {} },
     alert() {}, confirm() { return true; }, fetch: async () => { throw new Error('No network in tests'); },
     bridgeToast: message => toasts.push(message),
     async bridgeDecode(src) {
@@ -101,6 +107,7 @@ function harness() {
       return mint('thumb', resources.get(src));
     }
   });
+  Object.assign(element('previewCanvas'), canvas());
   scripts.forEach(source => vm.runInContext(source, context));
   vm.runInContext(`
     loadImage = bridgeDecode; canvasToUrl = bridgeEncode; generateThumb = bridgeThumb;
@@ -120,7 +127,8 @@ function harness() {
     return state().at(-1)._id;
   }
   return {
-    context, run, state, element, resources, revoked, encodes, toasts, controls, rafs,
+    context, run, state, element, resources, revoked, encodes, toasts, controls, rafs, documentListeners,
+    dispatch(type, event) { for (const handler of documentListeners.get(type) || []) handler(event); },
     add,
     async open(index = 0) { run(`openEditorFor(${index})`); await tick(); },
     setEncodeHook(hook) { encodeHook = hook; }, setDecodeHook(hook) { decodeHook = hook; }, setThumbHook(hook) { thumbHook = hook; },
@@ -294,6 +302,12 @@ function addPdfPage(h, name, width = 210, height = 297) {
   h.resources.set(`blob:${name}`, { width: Math.round(width * 10), height: Math.round(height * 10) });
 }
 
+async function selectCrop(h, rect) {
+  h.run("switchEditorTab('crop')"); await tick();
+  for (const [key, value] of Object.entries(rect)) h.element('crop' + key.toUpperCase()).value = value;
+  h.run('updateCropFromInputs()');
+}
+
 test('PDF physical dimensions are independently copied into metadata and undo history', () => {
   const h = harness(); addPdfPage(h, 'A');
   h.run("snapshot('Import'); globalThis.light = _lightImages()");
@@ -371,23 +385,24 @@ for (const reset of ['resetResize', 'resetCrop']) {
 }
 
 for (const operation of ['resize', 'crop']) {
-  test(`${operation} changes PDF content pixels and retains its physical paper dimensions`, async () => {
+  test(`${operation} changes PDF content pixels and ${operation === 'crop' ? 'trims' : 'retains'} its physical paper dimensions`, async () => {
     const h = harness(); addPdfPage(h, 'A'); await h.open();
     if (operation === 'resize') {
       h.element('resW').value = '600'; h.element('resH').value = '400';
       assert.equal(await h.run('applyResize()'), true);
     } else {
-      h.run('cropCachedImg={}; cropCanvasScale=1; cropRect={x:10,y:20,w:600,h:400}');
+      await selectCrop(h, { x: 10, y: 20, w: 600, h: 400 });
       assert.equal(await h.run('applyCrop()'), true);
     }
     assert.equal(await h.run('saveEdits()'), true);
     const page = h.state()[0], pixels = h.resources.get(page.src);
     assert.deepEqual([pixels.width, pixels.height], [600, 400]);
-    assert.deepEqual(page.pdfPageSizeMm, { width: 210, height: 297 });
+    assert.deepEqual(page.pdfPageSizeMm, operation === 'crop' ? { width: 60, height: 40 } : { width: 210, height: 297 });
     assert.deepEqual(page.originalPdfPageSizeMm, { width: 210, height: 297 });
     const layout = JSON.parse(h.run(`JSON.stringify(computePdfLayout(images[0], {w:600,h:400},
       {pageSize:'fit',orientation:'auto',imgFit:'actual',margin:0,dpi:300,oversize:'shrink'}))`));
-    assert.deepEqual(layout.page, { width: 210, height: 297, orientation: 'p' });
+    assert.deepEqual(layout.page, operation === 'crop'
+      ? { width: 60, height: 40, orientation: 'l' } : { width: 210, height: 297, orientation: 'p' });
     assert.ok(layout.image.width <= 210 && layout.image.height <= 297);
     assert.equal(layout.image.width / layout.image.height, 1.5, 'Edited content must not stretch to the paper aspect ratio');
   });
@@ -461,7 +476,7 @@ test('reset then a new edit frees only intermediates, not the original', async (
 for (const apply of ['applyResize', 'applyCrop', 'applyFilters']) {
   test(`late ${apply} cannot change a newly opened editor`, async () => {
     const h = harness(); h.add('A'); h.add('B'); await h.open();
-    h.run("cropCachedImg = {}; cropCanvasScale = 1; cropRect = {x:0,y:0,w:20,h:20}");
+    await selectCrop(h, { x: 0, y: 0, w: 20, h: 20 });
     if (apply === 'applyFilters') h.run('editorFilters={grayscale:100}');
     const gate = deferred(), started = deferred();
     h.setEncodeHook(async () => { started.resolve(); await gate.promise; });
@@ -653,7 +668,7 @@ test('application PDF import and password retry both use the protected loader', 
 for (const operation of ['applyResize()', 'applyCrop()', 'applyFilters()', 'saveEdits()']) {
   test(`${operation} produces lossless PNG working pixels without flattening alpha`, async () => {
     const h = harness(); h.add('Transparent'); await h.open();
-    h.run('cropCachedImg={}; cropCanvasScale=1; cropRect={x:0,y:0,w:40,h:30}; editorFilters={sepia:50}');
+    await selectCrop(h, { x: 0, y: 0, w: 40, h: 30 }); h.run('editorFilters={sepia:50}');
     if (operation === 'saveEdits()') h.run('quickRotate(45); applyFlip("h")');
     assert.equal(await h.run(operation), true);
     assert.equal(h.encodes.length, 1);
@@ -930,7 +945,7 @@ for (const apply of ['applyResize()', 'applyCrop()']) {
     const h = harness(); h.add('A'); h.add('B');
     h.run('images[1].rotation=180; images[1].flipH=true; images[1].filters={contrast:130}; snapshot("Import")');
     const beforeB = h.state()[1]; await h.open();
-    h.run('cropCachedImg={}; cropCanvasScale=1; cropRect={x:0,y:0,w:40,h:30}');
+    await selectCrop(h, { x: 0, y: 0, w: 40, h: 30 });
     assert.equal(await h.run(apply), true); assert.equal(await h.run('saveEdits(true)'), true);
     assert.deepEqual(h.state()[1], beforeB);
     assert.equal(h.encodes.length, 1);
@@ -1080,4 +1095,203 @@ test('filter batch preserves both an already baked rotation and a native quick r
   assert.equal(h.state()[2].pdfSource, undefined, 'C becomes an image after an explicit pixel filter');
   assert.deepEqual(h.state()[2].originalPdfSource, { sourceId: 'native', pageIndex: 2 });
   h.run('undo()'); assert.deepEqual(h.state(), before);
+});
+
+const cropRectState = h => JSON.parse(h.run('JSON.stringify(cropRect)'));
+function pointer(x, y, id = 1, extra = {}) {
+  return { clientX: x, clientY: y, pointerId: id, pointerType: 'touch', isPrimary: true, button: 0,
+    preventDefault() { this.prevented = true; }, ...extra };
+}
+
+test('phone crop corner drag resizes the existing rectangle using displayed canvas coordinates', async () => {
+  const h = harness(); h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 100, w: 600, h: 500 });
+  const cvs = h.element('previewCanvas'); cvs.displayRect = { left: 20, top: 30, width: 240, height: 192 };
+  const before = cropRectState(h), down = pointer(68, 54);
+  cvs.onpointerdown(down);
+  assert.deepEqual(cropRectState(h), before, 'Grabbing a handle does not reset the rectangle');
+  assert.equal(cvs.hasPointerCapture(1), true);
+  h.dispatch('pointermove', pointer(44, 42)); h.dispatch('pointerup', pointer(44, 42));
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [100, 50, 700, 550]);
+  assert.equal(cvs.hasPointerCapture(1), false);
+});
+
+test('all crop corners and edges keep the opposite edge fixed and clamp to one source pixel', () => {
+  const h = harness(), original = { x: 20, y: 15, w: 60, h: 50 };
+  h.context.original = original;
+  const drag = (mode, x, y) => JSON.parse(h.run(`JSON.stringify(cropDragRect('${mode}', {x:0,y:0}, {x:${x},y:${y}}, original,100,80,1,1))`));
+  assert.deepEqual(drag('nw', -100, -100), { x: 0, y: 0, w: 80, h: 65 });
+  assert.deepEqual(drag('ne', 1000, -100), { x: 20, y: 0, w: 80, h: 65 });
+  assert.deepEqual(drag('sw', -100, 1000), { x: 0, y: 15, w: 80, h: 65 });
+  assert.deepEqual(drag('se', 1000, 1000), { x: 20, y: 15, w: 80, h: 65 });
+  assert.deepEqual(drag('w', 1000, 40), { x: 79, y: 15, w: 1, h: 50 });
+  assert.deepEqual(drag('e', -100, 40), { x: 20, y: 15, w: 1, h: 50 });
+  assert.deepEqual(drag('n', 40, 1000), { x: 20, y: 64, w: 60, h: 1 });
+  assert.deepEqual(drag('s', 40, -100), { x: 20, y: 15, w: 60, h: 1 });
+});
+
+test('drawing a new crop beyond the top and left clamps endpoints before computing dimensions', () => {
+  const h = harness();
+  const rect = JSON.parse(h.run(`JSON.stringify(cropDragRect('new', {x:100,y:80},
+    {x:-20,y:-50}, {x:0,y:0,w:480,h:400}, 480,400,0.1,0.1))`));
+  assert.deepEqual(rect, { x: 0, y: 0, w: 100, h: 80 });
+});
+
+test('moving a crop retains its size and clamps the whole rectangle inside the image', async () => {
+  const h = harness(); h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 200, w: 500, h: 400 });
+  const cvs = h.element('previewCanvas');
+  cvs.onpointerdown(pointer(216, 192)); h.dispatch('pointermove', pointer(700, -300)); h.dispatch('pointerup', pointer(700, -300));
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [500, 0, 500, 400]);
+});
+
+test('crop pointer cancellation and a second finger restore the chosen rectangle and stop dragging', async () => {
+  const h = harness(); h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 100, w: 600, h: 500 }); const original = cropRectState(h), cvs = h.element('previewCanvas');
+  cvs.onpointerdown(pointer(96, 48)); h.dispatch('pointermove', pointer(48, 24));
+  h.dispatch('pointermove', pointer(0, 0, 99)); assert.notDeepEqual(cropRectState(h), original);
+  h.dispatch('pointercancel', pointer(48, 24)); assert.deepEqual(cropRectState(h), original);
+  cvs.onpointerdown(pointer(96, 48)); h.dispatch('pointermove', pointer(48, 24));
+  const second = pointer(150, 70, 2, { isPrimary: false }); cvs.onpointerdown(second);
+  assert.equal(second.prevented, undefined, 'The second finger can start browser pinch zoom');
+  assert.deepEqual(cropRectState(h), original); assert.equal(h.run('cropDragging'), false);
+  h.dispatch('pointermove', pointer(0, 0)); assert.deepEqual(cropRectState(h), original);
+});
+
+test('tapping outside a crop leaves it intact while an actual outside drag starts a new rectangle', async () => {
+  const h = harness(); h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 200, w: 500, h: 400 }); const original = cropRectState(h), cvs = h.element('previewCanvas');
+  cvs.onpointerdown(pointer(20, 20)); h.dispatch('pointerup', pointer(20, 20)); assert.deepEqual(cropRectState(h), original);
+  cvs.onpointerdown(pointer(24, 24)); h.dispatch('pointermove', pointer(96, 72)); h.dispatch('pointerup', pointer(96, 72));
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [50, 50, 150, 100]);
+});
+
+test('crop selection survives switching tools and handlers stop when the crop tool closes', async () => {
+  const h = harness(); h.add('Phone'); await h.open(); await selectCrop(h, { x: 10, y: 20, w: 60, h: 40 });
+  const original = cropRectState(h); h.run("switchEditorTab('filters')");
+  assert.equal(h.element('previewCanvas').onpointerdown, null);
+  assert.equal(h.documentListeners.get('pointermove').size, 0);
+  h.run("switchEditorTab('crop')"); await tick(); assert.deepEqual(cropRectState(h), original);
+  h.run('closeEditor()'); assert.equal(h.documentListeners.get('pointercancel').size, 0);
+});
+
+test('fractional preview axes round crop coordinates to exact valid source pixels without empty bands', async () => {
+  const h = harness(); h.add('Phone'); h.resources.set('blob:Phone', { width: 1001, height: 3333 }); await h.open();
+  await selectCrop(h, { x: 901, y: 3000, w: 100, h: 333 });
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [901, 3000, 100, 333]);
+  assert.equal(await h.run('applyCrop()'), true); assert.equal(await h.run('saveEdits()'), true);
+  assert.deepEqual([h.encodes[0].width, h.encodes[0].height], [100, 333]);
+  assert.deepEqual(h.encodes[0].calls[0].args, [901, 3000, 100, 333, 0, 0, 100, 333]);
+  assert.deepEqual(h.state()[0].cropPageBounds, { width: 100, height: 333 }); assert.equal(h.state()[0].cropToBounds, true);
+  assert.deepEqual(h.encodes[0].fills, []);
+  const layout = JSON.parse(h.run(`JSON.stringify(computePdfLayout(images[0], {w:100,h:333},
+    {pageSize:'a4',orientation:'portrait',imgFit:'contain',margin:10,dpi:300,oversize:'shrink'}))`));
+  assert.ok(Math.abs(layout.page.width - 100 * 25.4 / 300) < 1e-10);
+  assert.ok(Math.abs(layout.page.height - 333 * 25.4 / 300) < 1e-10);
+  assert.ok(Math.abs(layout.image.x) < 1e-10); assert.ok(Math.abs(layout.image.y) < 1e-10);
+  assert.ok(Math.abs(layout.image.width - layout.page.width) < 1e-10);
+  assert.ok(Math.abs(layout.image.height - layout.page.height) < 1e-10);
+});
+
+test('numeric one-pixel crop on a large image encodes exactly the published source pixel', async () => {
+  const h = harness(); h.add('Large'); h.resources.set('blob:Large', { width: 4800, height: 4000 }); await h.open();
+  await selectCrop(h, { x: 4799, y: 3999, w: 1, h: 1 });
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [4799, 3999, 1, 1]);
+  assert.equal(await h.run('applyCrop()'), true);
+  assert.deepEqual([h.encodes[0].width, h.encodes[0].height], [1, 1]);
+  assert.deepEqual(h.encodes[0].calls[0].args, [4799, 3999, 1, 1, 0, 0, 1, 1]);
+});
+
+test('crop coordinates clamp negative origins and oversize dimensions to the actual source', async () => {
+  const h = harness(); h.add('Phone'); await h.open(); await selectCrop(h, { x: -50, y: 75, w: 1000, h: 800 });
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [0, 75, 100, 5]);
+  assert.equal(await h.run('applyCrop()'), true);
+  assert.deepEqual(h.encodes[0].calls[0].args, [0, 75, 100, 5, 0, 0, 100, 5]);
+});
+
+test('full-image crop is a no-op that keeps native PDF structure, original pixels, and history', async () => {
+  const h = harness(); addPdfPage(h, 'PDF'); h.run('images[0].pdfSource={sourceId:"native",pageIndex:0}; snapshot("Import")');
+  const before = h.state(), historyLength = h.run('history.length'); await h.open(); h.run("switchEditorTab('crop')"); await tick();
+  assert.equal(await h.run('applyCrop()'), true); assert.equal(await h.run('saveEdits()'), true);
+  assert.deepEqual(h.state(), before); assert.equal(h.encodes.length, 0); assert.equal(h.run('history.length'), historyLength);
+});
+
+test('repeated crop Apply starts one encode and canceled crop does not change bounds in a later editor', async () => {
+  const h = harness(); h.add('A'); h.add('B'); await h.open(); await selectCrop(h, { x: 10, y: 20, w: 40, h: 30 });
+  const started = deferred(), gate = deferred(); h.setEncodeHook(async () => { started.resolve(); await gate.promise; });
+  const first = h.run('applyCrop()'); await started.promise; assert.equal(h.run('applyCrop()'), first);
+  h.run('closeEditor()'); await h.open(1); gate.resolve(); assert.equal(await first, false);
+  assert.equal(h.encodes.length, 1); assert.equal(h.run('editorSession.cropPageBounds'), undefined);
+  assert.equal(h.run('editorSession.cropToBounds'), undefined); assert.equal(h.run('editorCurrentSrc'), 'blob:B');
+});
+
+test('crop shrinks PDF paper bounds and Revert restores native content, paper, and uncropped page metadata', async () => {
+  const h = harness(); addPdfPage(h, 'PDF'); h.run('images[0].pdfSource={sourceId:"native",pageIndex:0}; images[0].originalPdfSource={sourceId:"native",pageIndex:0}; snapshot("Import")');
+  const original = h.state(); await h.open(); await selectCrop(h, { x: 100, y: 200, w: 600, h: 400 });
+  await h.run('applyCrop()'); assert.equal(await h.run('saveEdits()'), true);
+  const cropped = h.state()[0]; assert.deepEqual(cropped.pdfPageSizeMm, { width: 60, height: 40 });
+  assert.deepEqual(cropped.cropPageBounds, { width: 600, height: 400 }); assert.equal(cropped.cropToBounds, true); assert.equal(cropped.pdfSource, undefined);
+  await h.open(); h.run('revertAll()'); assert.equal(await h.run('saveEdits()'), true);
+  const restored = h.state()[0]; assert.equal(restored.src, 'blob:PDF'); assert.deepEqual(restored.pdfPageSizeMm, { width: 210, height: 297 });
+  assert.deepEqual(restored.pdfSource, { sourceId: 'native', pageIndex: 0 }); assert.equal(restored.cropPageBounds, undefined); assert.equal(restored.cropToBounds, undefined);
+  h.run('undo()'); assert.deepEqual(h.state()[0], cropped); h.run('undo()'); assert.deepEqual(h.state(), original);
+});
+
+test('cropped page metadata follows resize and rotation while bulk changes retain each page’s own bounds choice', async () => {
+  const h = harness(); h.add('A'); h.add('B');
+  h.run('images[1].cropPageBounds={width:100,height:80}; images[1].cropToBounds=false; snapshot("Import")');
+  await h.open(); await selectCrop(h, { x: 10, y: 20, w: 60, h: 40 }); await h.run('applyCrop()');
+  h.element('resW').value = 30; h.element('resH').value = 20; await h.run('applyResize()'); h.run('quickRotate(90)');
+  assert.equal(await h.run('saveEdits(true)'), true);
+  assert.deepEqual(h.state()[0].cropPageBounds, { width: 20, height: 30 }); assert.equal(h.state()[0].cropToBounds, true);
+  assert.deepEqual(h.state()[1].cropPageBounds, { width: 80, height: 100 }); assert.equal(h.state()[1].cropToBounds, false);
+});
+
+test('reopening a cropped page retains its explicit fixed-paper choice until a new crop or Revert', async () => {
+  const h = harness(); h.add('A'); await h.open(); await selectCrop(h, { x: 10, y: 20, w: 60, h: 40 });
+  await h.run('applyCrop()'); await h.run('saveEdits()'); h.run('images[0].cropToBounds=false; snapshot("Paper choice")');
+  const before = h.state(); await h.open(); assert.equal(h.run('editorSession.cropToBounds'), false);
+  assert.equal(await h.run('saveEdits()'), true); assert.deepEqual(h.state(), before);
+  await h.open(); await selectCrop(h, { x: 0, y: 0, w: 30, h: 20 }); await h.run('applyCrop()'); await h.run('saveEdits()');
+  assert.equal(h.state()[0].cropToBounds, true); assert.deepEqual(h.state()[0].cropPageBounds, { width: 30, height: 20 });
+});
+
+test('legacy touch crop fallback tracks one finger and cancels cleanly when another finger arrives', async () => {
+  const h = harness(); delete h.context.window.PointerEvent; h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 100, w: 600, h: 500 }); const original = cropRectState(h), cvs = h.element('previewCanvas');
+  const touch = (x, y) => ({ identifier: 11, clientX: x, clientY: y });
+  cvs.ontouchstart({ touches: [touch(96, 48)], preventDefault() {} });
+  h.dispatch('touchmove', { touches: [touch(48, 24)], preventDefault() {} }); assert.notDeepEqual(cropRectState(h), original);
+  h.dispatch('touchmove', { touches: [touch(48, 24), { identifier: 12, clientX: 80, clientY: 60 }], preventDefault() {} });
+  assert.deepEqual(cropRectState(h), original); assert.equal(h.run('cropDragging'), false);
+});
+
+test('legacy crop touchcancel restores the selection and fields without applying the canceled movement', async () => {
+  const h = harness(); delete h.context.window.PointerEvent; h.add('Phone'); h.resources.set('blob:Phone', { width: 1000, height: 800 }); await h.open();
+  await selectCrop(h, { x: 200, y: 100, w: 600, h: 500 });
+  const original = cropRectState(h), cvs = h.element('previewCanvas');
+  const touch = (x, y) => ({ identifier: 11, clientX: x, clientY: y });
+  cvs.ontouchstart({ touches: [touch(96, 48)], preventDefault() {} });
+  h.dispatch('touchmove', { touches: [touch(48, 24)], preventDefault() {} });
+  assert.notDeepEqual(cropRectState(h), original);
+  h.dispatch('touchcancel', { touches: [], changedTouches: [touch(48, 24)] });
+  assert.deepEqual(cropRectState(h), original); assert.equal(h.run('cropDragging'), false);
+  assert.deepEqual(['cropX', 'cropY', 'cropW', 'cropH'].map(id => h.element(id).value), [200, 100, 600, 500]);
+  h.dispatch('touchend', { touches: [], changedTouches: [touch(48, 24)] });
+  assert.deepEqual(cropRectState(h), original); assert.equal(h.encodes.length, 0);
+});
+
+test('cropping a pending quarter-turn PDF trims physical content bounds before baking that rotation once', async () => {
+  const h = harness(); addPdfPage(h, 'PDF');
+  h.run('images[0].pdfSource={sourceId:"native",pageIndex:0}; images[0].originalPdfSource={sourceId:"native",pageIndex:0}; images[0].rotation=90; snapshot("Import")');
+  await h.open(); await selectCrop(h, { x: 10, y: 20, w: 600, h: 400 }); await h.run('applyCrop()');
+  const croppedSource = h.run('editorCurrentSrc'); assert.equal(await h.run('saveEdits()'), true);
+  assert.deepEqual(h.encodes.map(record => [record.width, record.height]), [[600, 400], [400, 600]]);
+  assert.equal(h.encodes[1].calls[0].src, croppedSource); assert.equal(h.encodes[1].rotations[0], Math.PI / 2);
+  assert.deepEqual(h.state()[0].pdfPageSizeMm, { width: 40, height: 60 });
+  assert.deepEqual(h.state()[0].cropPageBounds, { width: 400, height: 600 }); assert.equal(h.state()[0].rotation, 0);
+  const layout = JSON.parse(h.run(`JSON.stringify(computePdfLayout(images[0], {w:400,h:600},
+    {pageSize:'a4',orientation:'landscape',imgFit:'contain',margin:10,dpi:300,oversize:'shrink'}))`));
+  assert.deepEqual(layout.page, { width: 40, height: 60, orientation: 'p' });
+  assert.deepEqual(layout.image, { x: 0, y: 0, width: 40, height: 60 });
 });

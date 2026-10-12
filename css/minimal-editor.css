@@ -44,8 +44,18 @@ body.forge-app #editorModal .editor-preview {
   border: 0;
   padding: 14px;
 }
-body.forge-app #editorModal .editor-preview canvas { cursor: default; }
-body.forge-app #editorModal:has(#editor-tab-crop[aria-selected="true"]) .editor-preview canvas { cursor: crosshair; }
+body.forge-app #editorModal .editor-preview canvas {
+  cursor: default;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: auto;
+}
+body.forge-app #editorModal:has(#editor-tab-crop[aria-selected="true"]) .editor-preview canvas {
+  cursor: crosshair;
+  /* One finger edits the selection; a second finger can zoom the browser. */
+  touch-action: pinch-zoom;
+}
 body.forge-app #editorModal .editor-save-hint {
   color: var(--forge-mist);
   font-size: 12px;

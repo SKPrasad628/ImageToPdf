@@ -44,6 +44,17 @@ function jpegWithExif(tiff, afterSof = false) {
   const sof = Buffer.from([0xff, 0xc0, 0, 8, 8, 0x1f, 0x40, 0x2e, 0xe0, 1]);
   return Buffer.concat([Buffer.from([0xff, 0xd8]), ...(afterSof ? [sof, exif] : [exif, sof]), Buffer.from([0xff, 0xd9])]);
 }
+function jpegSegment(marker, payload) {
+  const size = payload.length + 2;
+  return Buffer.concat([Buffer.from([0xff, marker, size >> 8, size & 255]), Buffer.from(payload)]);
+}
+function jpegPastPrefix(options = {}) {
+  const padding = jpegSegment(0xe2, new Uint8Array(65533));
+  const exif = jpegSegment(0xe1, Buffer.concat([Buffer.from('Exif\0\0'), exifTiff(options.orientation || 1)]));
+  const sof = Buffer.from([0xff, options.progressive ? 0xc2 : 0xc0, 0, 8, 8, 0x0b, 0xb8, 0x0f, 0xa0, 1]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), padding, padding, exif, sof,
+    Buffer.from([0xff, 0xda, 0, 2]), new Uint8Array(options.scanBytes || 0)]);
+}
 function pngChunk(type, payload) {
   const bytes = new Uint8Array(payload.length + 12), view = new DataView(bytes.buffer);
   view.setUint32(0, payload.length); bytes.set(Buffer.from(type), 4); bytes.set(payload, 8);
@@ -88,6 +99,67 @@ test('JPEG baseline and progressive SOF dimensions are read after metadata segme
     const result = await classifyFile(file(bytes, 'photo'));
     assert.equal(result.format, 'jpeg'); assert.equal(result.width, 2048); assert.equal(result.height, 4096);
   }
+});
+
+test('camera JPEG dimensions beyond 64 KiB are found with sparse metadata reads for baseline and progressive frames', async () => {
+  for (const progressive of [false, true]) {
+    const input = file(jpegPastPrefix({ progressive, orientation: 6, scanBytes: 2 * 1024 * 1024 }), 'camera.jpg', 'image/jpeg');
+    input.arrayBuffer = () => { throw new Error('Full-file read'); };
+    const result = await classifyFile(input);
+    assert.equal(result.width, 4000); assert.equal(result.height, 3000);
+    assert.equal(result.orientation, 6); assert.equal(result.displayWidth, 3000); assert.equal(result.displayHeight, 4000);
+    assert.ok(input.reads.some(([start]) => start > HEADER_BYTES));
+    assert.ok(result.headerBytes < HEADER_BYTES + 100, 'Only marker headers and EXIF are read after the bounded prefix');
+    assert.ok(input.reads.every(([start, end]) => end - start <= HEADER_BYTES));
+    assert.ok(input.reads.every(([start]) => start < 132000), 'Compressed image data is never read during preflight');
+  }
+});
+
+test('sparse JPEG parsing cannot follow a truncated metadata segment to invented dimensions', async () => {
+  const input = file(jpegPastPrefix().subarray(0, 70000), 'truncated.jpg', 'image/jpeg');
+  const result = await classifyFile(input);
+  assert.equal(result.width, undefined); assert.equal(result.height, undefined);
+  assert.deepEqual(input.reads, [[0, HEADER_BYTES], [65539, 65541], [65541, 65543]]);
+});
+
+test('JPEG marker and header-byte budgets bound malformed metadata without falling back to whole-file reads', async () => {
+  const oversizedTiff = Buffer.concat([Buffer.from('Exif\0\0'), new Uint8Array(65527)]);
+  const metadata = jpegSegment(0xe1, oversizedTiff);
+  const bytes = Buffer.concat([Buffer.from([0xff, 0xd8]), ...Array(8).fill(metadata),
+    Buffer.from([0xff, 0xc0, 0, 8, 8, 0, 10, 0, 10, 1])]);
+  const input = file(bytes);
+  const result = await classifyFile(input);
+  assert.equal(result.width, undefined);
+  assert.ok(result.headerBytes <= 256 * 1024);
+  const manyMarkers = file(Buffer.concat([Buffer.from([0xff, 0xd8]), ...Array(40000).fill(Buffer.from([0xff, 0x01])),
+    Buffer.from([0xff, 0xc0, 0, 8, 8, 0, 10, 0, 10, 1])]));
+  const limited = await classifyFile(manyMarkers);
+  assert.equal(limited.width, undefined);
+  assert.equal(limited.headerBytes, HEADER_BYTES);
+  assert.deepEqual(manyMarkers.reads, [[0, HEADER_BYTES]], 'Excessive marker traversal never triggers further I/O');
+});
+
+test('canceling a sparse JPEG metadata read prevents every later read', async () => {
+  const input = file(jpegPastPrefix()), originalSlice = input.slice;
+  let current = true;
+  input.slice = function (start, end) {
+    const blob = originalSlice.call(this, start, end);
+    if (start > HEADER_BYTES) current = false;
+    return blob;
+  };
+  await assert.rejects(classifyFile(input, { isCurrent: () => current }), { name: 'ImportCanceledError' });
+  assert.equal(input.reads.length, 2);
+});
+
+test('a JPEG whose later cloud-backed header read fails gets actionable original-file guidance', async () => {
+  const input = file(jpegPastPrefix()), originalSlice = input.slice;
+  input.slice = function (start, end) {
+    if (start > HEADER_BYTES) throw new Error('File is no longer available');
+    return originalSlice.call(this, start, end);
+  };
+  const result = await classifyFile(input);
+  assert.equal(result.kind, 'unsupported'); assert.equal(result.format, 'jpeg');
+  assert.match(result.reason, /Download the original photo to your device/);
 });
 
 test('truncated or malformed JPEG dimensions are unknown, never invented', async () => {

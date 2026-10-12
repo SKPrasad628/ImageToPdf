@@ -256,6 +256,15 @@ function headerFile(name, width = 100, height = 200, type = '') {
   view.setUint32(16, width); view.setUint32(20, height);
   return { ...file(name, type), slice(start, end, mime) { return { name, type: mime || type, arrayBuffer: async () => bytes.slice(start, end).buffer }; } };
 }
+function cameraJpegFile(name, width = 4000, height = 3000, type = 'image/jpeg') {
+  const metadata = Buffer.concat([Buffer.from([0xff, 0xe2, 0xff, 0xff]), Buffer.alloc(65533)]);
+  const bytes = Buffer.concat([Buffer.from([0xff, 0xd8]), metadata, metadata,
+    Buffer.from([0xff, 0xc0, 0, 8, 8, height >> 8, height & 255, width >> 8, width & 255, 1, 0xff, 0xd9])]);
+  return { name, type, size: bytes.length, slice(start, end, mime) {
+    return { name, type: mime || type, size: Math.min(end, bytes.length) - start,
+      arrayBuffer: async () => Uint8Array.from(bytes.subarray(start, end)).buffer };
+  } };
+}
 function installLimits(h) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/raster-limits.js'), 'utf8'), h.context);
   return h.context.PhotoPdfLimits;
@@ -274,6 +283,23 @@ test('empty and misleading image MIME types import by signature in the original 
   const h = harness();
   await h.import([headerFile('no-extension'), headerFile('photo.txt', 100, 200, 'text/plain'), file('third.JPG', '')]);
   assert.deepEqual(h.images.map(entry => entry.name), ['no-extension', 'photo.txt', 'third.JPG']);
+});
+
+test('camera JPEGs with SOF after large phone metadata import through safety preflight in selection order', async () => {
+  const h = harness(); installLimits(h);
+  await h.import([cameraJpegFile('camera-first.jpg'), headerFile('middle.png'), cameraJpegFile('camera-last.jpg', 4000, 3000, '')]);
+  assert.deepEqual(h.images.map(image => image.name), ['camera-first.jpg', 'middle.png', 'camera-last.jpg']);
+  const report = h.context.getImportReport('edit');
+  assert.equal(report.imported, 3); assert.equal(report.skipped.length, 0);
+  assert.equal(h.images[0].size, cameraJpegFile('camera-first.jpg').size, 'A 12 MP photo keeps its original encoded bytes');
+});
+
+test('late-SOF camera dimensions still enforce the source-pixel cap before URLs or decoding', async () => {
+  const h = harness(); installLimits(h);
+  await h.import([cameraJpegFile('too-large.jpg', 65535, 65535), headerFile('next.png')]);
+  assert.deepEqual(h.images.map(image => image.name), ['next.png']);
+  assert.deepEqual(h.starts, ['blob:next.png-1']);
+  assert.match(h.context.getImportReport('edit').skipped[0].reason, /256 megapixels/);
 });
 
 test('unsupported drops have persistent names and reasons, including explicit TIFF refusal', async () => {

@@ -47,6 +47,7 @@ function setEditorSrc(url, { temporary = false, session = editorSession } = {}) 
   }
   editorCurrentSrc = url;
   if (temporary) session.pdfSource = undefined;
+  if (previous !== url) session.cropSelection = null;
   if (previous !== url && session.tempUrls.delete(previous)) releaseUrl(previous);
   return true;
 }
@@ -70,6 +71,9 @@ function resetEditorSource() {
   editorSession.pdfSource = editorSession.originalPdfSource
     ? { ...editorSession.originalPdfSource } : undefined;
   editorSession.filterRecipe = [];
+  editorSession.cropSelection = null;
+  editorSession.cropPageBounds = undefined;
+  editorSession.cropToBounds = undefined;
   // Source resets keep the visible pending sliders. Those retained values
   // still belong to this page until the user chooses another filter step.
   editorSession.pendingFilterBaseline = { ...editorFilters };
@@ -148,6 +152,8 @@ function openEditorFor(i) {
     pdfSource: image.pdfSource ? { ...image.pdfSource } : undefined,
     originalPdfSource: image.originalPdfSource ? { ...image.originalPdfSource } : undefined,
     pdfPageSizeMm: copyPdfPageSize(image.pdfPageSizeMm),
+    cropPageBounds: image.cropPageBounds ? { ...image.cropPageBounds } : undefined,
+    cropToBounds: image.cropToBounds,
     originalPdfPageSizeMm: copyPdfPageSize(image.originalPdfPageSizeMm || image.pdfPageSizeMm)
   };
   editorRotation = image.rotation || 0;
@@ -304,6 +310,14 @@ function teardownCropDrag() {
   if (!cvs) return;
   cvs.onmousedown = null;
   cvs.ontouchstart = null;
+  cvs.onpointerdown = null;
+  cvs.oncontextmenu = null;
+  if (cvs._cropCancelGesture) cvs._cropCancelGesture();
+  if (cvs._cropHandlers) {
+    cvs._cropHandlers.forEach(([type, handler]) => document.removeEventListener(type, handler));
+    cvs._cropHandlers = null;
+  }
+  cvs._cropCancelGesture = null;
   if (cvs._cropMoveHandler)  { document.removeEventListener('mousemove', cvs._cropMoveHandler);  cvs._cropMoveHandler  = null; }
   if (cvs._cropUpHandler)    { document.removeEventListener('mouseup',   cvs._cropUpHandler);    cvs._cropUpHandler    = null; }
   if (cvs._cropTMoveHandler) { document.removeEventListener('touchmove', cvs._cropTMoveHandler); cvs._cropTMoveHandler = null; }
@@ -438,6 +452,7 @@ function applyResize() {
     ctx.drawImage(img, 0, 0, w, h);
     return encodeEditorCanvas(cvs);
   }, () => {
+    if (editorSession.cropPageBounds) editorSession.cropPageBounds = { width: w, height: h };
     renderPreviewCanvas(editorCurrentSrc);
     updateSizeInfo();
   });
@@ -465,201 +480,239 @@ function getCanvasPos(cvs, e) {
   };
 }
 
+// Preview rounding gives each axis a slightly different source-pixel scale.
+function cropSourceRect(rect, canvasWidth, canvasHeight, naturalWidth, naturalHeight) {
+  const nw = Math.max(1, Math.round(naturalWidth)), nh = Math.max(1, Math.round(naturalHeight));
+  const sx = nw / Math.max(1, canvasWidth), sy = nh / Math.max(1, canvasHeight);
+  const clamp = (value, low, high) => Math.max(low, Math.min(high, Number.isFinite(value) ? value : low));
+  const x = clamp(Math.round(rect.x * sx), 0, nw - 1), y = clamp(Math.round(rect.y * sy), 0, nh - 1);
+  const right = clamp(Math.round((rect.x + rect.w) * sx), x + 1, nw);
+  const bottom = clamp(Math.round((rect.y + rect.h) * sy), y + 1, nh);
+  return { x, y, w: right - x, h: bottom - y };
+}
+function cropCanvasRect(rect, canvasWidth, canvasHeight, naturalWidth, naturalHeight) {
+  const sx = canvasWidth / Math.max(1, naturalWidth), sy = canvasHeight / Math.max(1, naturalHeight);
+  return { x: rect.x * sx, y: rect.y * sy, w: rect.w * sx, h: rect.h * sy };
+}
+function rememberCropSelection() {
+  if (!isEditorSessionCurrent(editorSession) || !cropCachedImg) return;
+  const cvs = document.getElementById('previewCanvas');
+  editorSession.cropSelection = { src: editorCurrentSrc,
+    rect: cropSourceRect(cropRect, cvs.width, cvs.height, cropImgNaturalW, cropImgNaturalH) };
+}
 function setupCropMode() {
   const cvs = document.getElementById('previewCanvas');
-  cropCachedImg = null; // reset cache
+  teardownCropDrag(); cropCachedImg = null;
   const session = editorSession, generation = session && session.generation;
   const src = editorCurrentSrc, request = ++editorPreviewRequest;
   loadImage(src).then(img => {
     if (!isEditorSourceCurrent(session, generation, src) || request !== editorPreviewRequest || editorTab !== 'crop') return;
-    cropImgNaturalW = img.naturalWidth;
-    cropImgNaturalH = img.naturalHeight;
-    const MAX = 480;
-    const scale = Math.min(MAX / img.naturalWidth, MAX / img.naturalHeight, 1);
+    cropImgNaturalW = img.naturalWidth; cropImgNaturalH = img.naturalHeight;
+    const scale = Math.min(480 / img.naturalWidth, 480 / img.naturalHeight, 1);
     cropCanvasScale = scale;
-    cvs.width  = Math.round(img.naturalWidth  * scale);
-    cvs.height = Math.round(img.naturalHeight * scale);
-    cropCachedImg = img; // store for fast redraws
-    cropRect = {x:0, y:0, w:cvs.width, h:cvs.height};
-    drawCropOverlay();
-    updateCropInputs();
-    setupCropDrag();
+    cvs.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    cvs.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    cropCachedImg = img;
+    const remembered = session.cropSelection;
+    cropRect = remembered && remembered.src === src
+      ? cropCanvasRect(remembered.rect, cvs.width, cvs.height, cropImgNaturalW, cropImgNaturalH)
+      : { x: 0, y: 0, w: cvs.width, h: cvs.height };
+    drawCropOverlay(); updateCropInputs(); setupCropDrag();
   }).catch(() => {
     if (isEditorSourceCurrent(session, generation, src) && request === editorPreviewRequest && editorTab === 'crop') showToast('⚠️ Could not load image for cropping');
   });
 }
-
 function drawCropOverlay() {
-  const cvs = document.getElementById('previewCanvas');
-  const ctx = cvs.getContext('2d');
-  if (!cropCachedImg) return; // not ready yet
-
-  // 1. Draw the base image
-  ctx.drawImage(cropCachedImg, 0, 0, cvs.width, cvs.height);
-
-  // 2. Dark overlay over the whole canvas
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-  // 3. Punch a clear hole where the crop selection is, then redraw image there
-  if (cropRect.w > 0 && cropRect.h > 0) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-    ctx.clip();
-    ctx.drawImage(cropCachedImg, 0, 0, cvs.width, cvs.height);
-    ctx.restore();
-
-    // 4. Crop border
-    ctx.strokeStyle = '#2040e8';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(cropRect.x + 0.5, cropRect.y + 0.5, cropRect.w, cropRect.h);
-
-    // 5. Rule-of-thirds grid inside the crop
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 0.75;
-    for (let t = 1; t < 3; t++) {
-      const gx = cropRect.x + cropRect.w * t / 3;
-      const gy = cropRect.y + cropRect.h * t / 3;
-      ctx.beginPath(); ctx.moveTo(gx, cropRect.y); ctx.lineTo(gx, cropRect.y + cropRect.h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cropRect.x, gy); ctx.lineTo(cropRect.x + cropRect.w, gy); ctx.stroke();
-    }
-
-    // 6. Corner handles
-    const hs = 7; // handle size
-    ctx.fillStyle = '#2040e8';
-    [[cropRect.x, cropRect.y],[cropRect.x+cropRect.w, cropRect.y],
-     [cropRect.x, cropRect.y+cropRect.h],[cropRect.x+cropRect.w, cropRect.y+cropRect.h]]
-      .forEach(([hx,hy]) => ctx.fillRect(hx - hs/2, hy - hs/2, hs, hs));
-  }
-}
-
-function setupCropDrag() {
-  const cvs = document.getElementById('previewCanvas');
-
-  // Tear down any previous handlers to prevent leaking into other tabs
-  cvs.onmousedown = null;
-  cvs.ontouchstart = null;
-  if (cvs._cropMoveHandler) { document.removeEventListener('mousemove', cvs._cropMoveHandler); cvs._cropMoveHandler = null; }
-  if (cvs._cropUpHandler)   { document.removeEventListener('mouseup',   cvs._cropUpHandler);   cvs._cropUpHandler   = null; }
-  if (cvs._cropTMoveHandler) { document.removeEventListener('touchmove', cvs._cropTMoveHandler); cvs._cropTMoveHandler = null; }
-  if (cvs._cropTUpHandler)   { document.removeEventListener('touchend',  cvs._cropTUpHandler);   cvs._cropTUpHandler   = null; }
-
-  // Helper: get canvas position from any pointer event (mouse or touch)
-  function posFromEvent(e) {
-    const src = e.touches ? e.touches[0] : e;
-    return getCanvasPos(cvs, { clientX: src.clientX, clientY: src.clientY });
-  }
-
-  function onCropMove(e) {
-    if (!cropDragging) return;
-    e.preventDefault();
-    const pos = posFromEvent(e);
-    const x = pos.x, y = pos.y;
-    cropRect = {
-      x: Math.max(0, Math.min(cropStart.x, x)),
-      y: Math.max(0, Math.min(cropStart.y, y)),
-      w: Math.abs(x - cropStart.x),
-      h: Math.abs(y - cropStart.y)
-    };
-    // Clamp to canvas bounds
-    cropRect.w = Math.min(cropRect.w, cvs.width  - cropRect.x);
-    cropRect.h = Math.min(cropRect.h, cvs.height - cropRect.y);
-    drawCropOverlay();
-    updateCropInputs();
-  }
-
-  function onCropUp(e) {
-    cropDragging = false;
-  }
-
-  cvs._cropMoveHandler  = onCropMove;
-  cvs._cropUpHandler    = onCropUp;
-  cvs._cropTMoveHandler = onCropMove;
-  cvs._cropTUpHandler   = onCropUp;
-
-  function startCrop(e) {
-    if (!canChangeEditor() || editorSession.pending) return;
-    if (document.getElementById('panel-crop').style.display === 'none') return;
-    e.preventDefault();
-    cropDragging = true;
-    const pos = posFromEvent(e);
-    cropStart = pos;
-    cropRect = {x: pos.x, y: pos.y, w: 0, h: 0};
-  }
-
-  cvs.onmousedown = startCrop;
-  cvs.ontouchstart = startCrop;
-
-  // Attach move/up to document so dragging outside canvas still works
-  document.addEventListener('mousemove', onCropMove);
-  document.addEventListener('mouseup',   onCropUp);
-  document.addEventListener('touchmove', onCropMove, { passive: false });
-  document.addEventListener('touchend',  onCropUp);
-}
-
-function updateCropInputs() {
-  const s = cropCanvasScale || 1;
-  document.getElementById('cropX').value = Math.round(cropRect.x / s);
-  document.getElementById('cropY').value = Math.round(cropRect.y / s);
-  document.getElementById('cropW').value = Math.round(cropRect.w / s) || cropImgNaturalW;
-  document.getElementById('cropH').value = Math.round(cropRect.h / s) || cropImgNaturalH;
-}
-
-function updateCropFromInputs() {
-  if (!canChangeEditor()) return;
-  const cvs = document.getElementById('previewCanvas');
-  const s = cropCanvasScale || 1;
-  let x = (parseInt(document.getElementById('cropX').value) || 0) * s;
-  let y = (parseInt(document.getElementById('cropY').value) || 0) * s;
-  let w = (parseInt(document.getElementById('cropW').value) || cropImgNaturalW) * s;
-  let h = (parseInt(document.getElementById('cropH').value) || cropImgNaturalH) * s;
-  // Keep the selection inside the image: an out-of-bounds source rect makes
-  // drawImage emit blank bands (which then bake in as black on JPEG export).
-  x = Math.max(0, Math.min(x, cvs.width  - 1));
-  y = Math.max(0, Math.min(y, cvs.height - 1));
-  w = Math.max(1, Math.min(w, cvs.width  - x));
-  h = Math.max(1, Math.min(h, cvs.height - y));
-  cropRect = { x, y, w, h };
-  drawCropOverlay();
-}
-
-function applyCrop() {
+  const cvs = document.getElementById('previewCanvas'), ctx = cvs.getContext('2d');
   if (!cropCachedImg) return;
-  const s = cropCanvasScale || 1;
-  const x = cropRect.x / s, y = cropRect.y / s;
-  const w = Math.max(1, cropRect.w / s), h = Math.max(1, cropRect.h / s);
-  // Draw from the original editorCurrentSrc at natural resolution
-  return queueEditorOperation('crop', async img => {
-    if (window.PhotoPdfLimits) window.PhotoPdfLimits.assertRaster(Math.max(1, Math.floor(w)), Math.max(1, Math.floor(h)), 'Crop');
-    const cvs = document.createElement('canvas');
-    cvs.width = w; cvs.height = h;
-    const ctx = cvs.getContext('2d');
-    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-    return encodeEditorCanvas(cvs);
-  }, () => {
-    cropCachedImg = null;
-    setupCropMode();
-  });
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  ctx.drawImage(cropCachedImg, 0, 0, cvs.width, cvs.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+  if (cropRect.w <= 0 || cropRect.h <= 0) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(cropRect.x, cropRect.y, cropRect.w, cropRect.h); ctx.clip();
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  ctx.drawImage(cropCachedImg, 0, 0, cvs.width, cvs.height); ctx.restore();
+  ctx.strokeStyle = '#80c8ee'; ctx.lineWidth = 2;
+  ctx.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.75;
+  for (let t = 1; t < 3; t++) {
+    const gx = cropRect.x + cropRect.w * t / 3, gy = cropRect.y + cropRect.h * t / 3;
+    ctx.beginPath(); ctx.moveTo(gx, cropRect.y); ctx.lineTo(gx, cropRect.y + cropRect.h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cropRect.x, gy); ctx.lineTo(cropRect.x + cropRect.w, gy); ctx.stroke();
+  }
+  const box = cvs.getBoundingClientRect();
+  const hx = Math.min(16, 10 * cvs.width / Math.max(1, box.width)), hy = Math.min(16, 10 * cvs.height / Math.max(1, box.height));
+  ctx.fillStyle = '#80c8ee';
+  [[cropRect.x, cropRect.y], [cropRect.x + cropRect.w, cropRect.y],
+   [cropRect.x, cropRect.y + cropRect.h], [cropRect.x + cropRect.w, cropRect.y + cropRect.h]]
+    .forEach(([x, y]) => ctx.fillRect(Math.max(0, Math.min(cvs.width - hx, x - hx / 2)),
+      Math.max(0, Math.min(cvs.height - hy, y - hy / 2)), hx, hy));
 }
-
+function cropHitMode(point, rect, radiusX, radiusY, canvasWidth, canvasHeight) {
+  const right = rect.x + rect.w, bottom = rect.y + rect.h;
+  const near = [['nw', rect.x, rect.y], ['ne', right, rect.y], ['sw', rect.x, bottom], ['se', right, bottom]]
+    .map(([mode, x, y]) => ({ mode, distance: ((point.x - x) / radiusX) ** 2 + ((point.y - y) / radiusY) ** 2 }))
+    .filter(value => value.distance <= 1).sort((a, b) => a.distance - b.distance)[0];
+  if (near) return near.mode;
+  if (point.x >= rect.x && point.x <= right) {
+    if (Math.abs(point.y - rect.y) <= radiusY) return 'n';
+    if (Math.abs(point.y - bottom) <= radiusY) return 's';
+  }
+  if (point.y >= rect.y && point.y <= bottom) {
+    if (Math.abs(point.x - rect.x) <= radiusX) return 'w';
+    if (Math.abs(point.x - right) <= radiusX) return 'e';
+  }
+  const full = rect.x === 0 && rect.y === 0 && rect.w === canvasWidth && rect.h === canvasHeight;
+  return !full && point.x > rect.x && point.x < right && point.y > rect.y && point.y < bottom ? 'move' : 'new';
+}
+function cropDragRect(mode, start, point, original, width, height, minWidth, minHeight) {
+  const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+  const x = clamp(point.x, 0, width), y = clamp(point.y, 0, height);
+  if (mode === 'move') return { ...original, x: clamp(original.x + point.x - start.x, 0, width - original.w),
+    y: clamp(original.y + point.y - start.y, 0, height - original.h) };
+  if (mode === 'new') {
+    const sx = clamp(start.x, 0, width), sy = clamp(start.y, 0, height);
+    return { x: Math.min(Math.min(sx, x), width - minWidth), y: Math.min(Math.min(sy, y), height - minHeight),
+      w: Math.max(minWidth, Math.abs(x - sx)), h: Math.max(minHeight, Math.abs(y - sy)) };
+  }
+  let left = original.x, right = original.x + original.w, top = original.y, bottom = original.y + original.h;
+  if (mode.includes('w')) left = clamp(x, 0, right - minWidth);
+  if (mode.includes('e')) right = clamp(x, left + minWidth, width);
+  if (mode.includes('n')) top = clamp(y, 0, bottom - minHeight);
+  if (mode.includes('s')) bottom = clamp(y, top + minHeight, height);
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+function setupCropDrag() {
+  const cvs = document.getElementById('previewCanvas'); teardownCropDrag();
+  const session = editorSession, generation = session && session.generation, src = editorCurrentSrc;
+  let gesture = null;
+  const current = () => isEditorSourceCurrent(session, generation, src) && editorTab === 'crop' && !session.pending && !session.saving;
+  const position = event => {
+    const point = getCanvasPos(cvs, event);
+    return { x: Math.max(0, Math.min(cvs.width, point.x)), y: Math.max(0, Math.min(cvs.height, point.y)) };
+  };
+  function finish(cancel = false) {
+    if (!gesture) return;
+    const previous = gesture; gesture = null; cropDragging = false;
+    if (cancel && isEditorSourceCurrent(session, generation, src)) {
+      cropRect = previous.rect; drawCropOverlay(); updateCropInputs();
+    }
+    if (cvs.hasPointerCapture && cvs.hasPointerCapture(previous.id)) cvs.releasePointerCapture(previous.id);
+  }
+  function start(event, id, touch) {
+    if (!current() || !cropCachedImg || gesture) return;
+    const point = position(event), box = cvs.getBoundingClientRect(), radius = touch ? 24 : 10;
+    const mode = cropHitMode(point, cropRect, radius * cvs.width / Math.max(1, box.width),
+      radius * cvs.height / Math.max(1, box.height), cvs.width, cvs.height);
+    gesture = { id, start: point, rect: { ...cropRect }, mode,
+      thresholdX: 3 * cvs.width / Math.max(1, box.width), thresholdY: 3 * cvs.height / Math.max(1, box.height) };
+    cropDragging = true; event.preventDefault();
+    if (cvs.setPointerCapture && event.pointerId !== undefined) cvs.setPointerCapture(id);
+  }
+  function move(event, id) {
+    if (!gesture || gesture.id !== id) return;
+    if (!current()) { finish(true); return; }
+    const point = position(event), g = gesture;
+    if (Math.abs(point.x - g.start.x) < g.thresholdX && Math.abs(point.y - g.start.y) < g.thresholdY && !g.moved) return;
+    g.moved = true; event.preventDefault();
+    cropRect = cropDragRect(g.mode, g.start, point, g.rect, cvs.width, cvs.height,
+      cvs.width / cropImgNaturalW, cvs.height / cropImgNaturalH);
+    drawCropOverlay(); updateCropInputs();
+  }
+  const handlers = [], listen = (type, handler, options) => { document.addEventListener(type, handler, options); handlers.push([type, handler]); };
+  cvs.oncontextmenu = event => event.preventDefault();
+  if ('PointerEvent' in window) {
+    cvs.onpointerdown = event => {
+      if (event.isPrimary === false) { finish(true); return; }
+      if (event.button !== undefined && event.button !== 0) return;
+      start(event, event.pointerId, event.pointerType === 'touch');
+    };
+    listen('pointermove', event => move(event, event.pointerId));
+    listen('pointerup', event => { if (gesture && gesture.id === event.pointerId) finish(); });
+    listen('pointercancel', event => { if (gesture && gesture.id === event.pointerId) finish(true); });
+    listen('lostpointercapture', event => { if (gesture && gesture.id === event.pointerId) finish(true); });
+  } else {
+    cvs.onmousedown = event => { if (event.button === undefined || event.button === 0) start(event, 'mouse', false); };
+    listen('mousemove', event => move(event, 'mouse')); listen('mouseup', () => finish());
+    cvs.ontouchstart = event => {
+      if (event.touches.length !== 1) { finish(true); return; }
+      const touch = event.touches[0];
+      start({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => event.preventDefault() }, touch.identifier, true);
+    };
+    listen('touchmove', event => {
+      if (event.touches.length !== 1) { finish(true); return; }
+      const touch = event.touches[0];
+      move({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => event.preventDefault() }, touch.identifier);
+    }, { passive: false });
+    listen('touchend', event => { if (gesture && [...event.changedTouches].some(touch => touch.identifier === gesture.id)) finish(); });
+    listen('touchcancel', () => finish(true));
+  }
+  cvs._cropHandlers = handlers; cvs._cropCancelGesture = () => finish(true);
+}
+function updateCropInputs() {
+  const cvs = document.getElementById('previewCanvas');
+  const rect = cropSourceRect(cropRect, cvs.width, cvs.height, cropImgNaturalW, cropImgNaturalH);
+  document.getElementById('cropX').value = rect.x; document.getElementById('cropY').value = rect.y;
+  document.getElementById('cropW').value = rect.w; document.getElementById('cropH').value = rect.h;
+  rememberCropSelection();
+}
+function updateCropFromInputs() {
+  if (!canChangeEditor() || editorSession.pending || !cropCachedImg) return;
+  const cvs = document.getElementById('previewCanvas');
+  const number = (id, fallback) => { const value = Number(document.getElementById(id).value); return Number.isFinite(value) ? Math.round(value) : fallback; };
+  const x = Math.max(0, Math.min(cropImgNaturalW - 1, number('cropX', 0))), y = Math.max(0, Math.min(cropImgNaturalH - 1, number('cropY', 0)));
+  const w = Math.max(1, Math.min(cropImgNaturalW - x, number('cropW', cropImgNaturalW))), h = Math.max(1, Math.min(cropImgNaturalH - y, number('cropH', cropImgNaturalH)));
+  cropRect = cropCanvasRect({ x, y, w, h }, cvs.width, cvs.height, cropImgNaturalW, cropImgNaturalH);
+  drawCropOverlay(); updateCropInputs();
+}
+function applyCrop() {
+  if (!canChangeEditor() || !cropCachedImg) return Promise.resolve(false);
+  const session = editorSession, cvs = document.getElementById('previewCanvas');
+  if (session.cropApply && session.cropApply.generation === session.generation) return session.cropApply.promise;
+  const selection = { ...cropRect }, canvasWidth = cvs.width, canvasHeight = cvs.height;
+  const requested = cropSourceRect(selection, canvasWidth, canvasHeight, cropImgNaturalW, cropImgNaturalH);
+  if (requested.x === 0 && requested.y === 0 && requested.w === cropImgNaturalW && requested.h === cropImgNaturalH) {
+    showToast('No crop changes to apply');
+    return Promise.resolve(true);
+  }
+  let applied;
+  const operation = queueEditorOperation('crop', async img => {
+    const rect = cropSourceRect(selection, canvasWidth, canvasHeight, img.naturalWidth, img.naturalHeight);
+    if (window.PhotoPdfLimits) window.PhotoPdfLimits.assertRaster(rect.w, rect.h, 'Crop');
+    const output = document.createElement('canvas'); output.width = rect.w; output.height = rect.h;
+    output.getContext('2d').drawImage(img, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    applied = { ...rect, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
+    return encodeEditorCanvas(output);
+  }, () => {
+    if (session.pdfPageSizeMm && applied) session.pdfPageSizeMm = {
+      width: session.pdfPageSizeMm.width * applied.w / applied.naturalWidth,
+      height: session.pdfPageSizeMm.height * applied.h / applied.naturalHeight
+    };
+    session.cropPageBounds = { width: applied.w, height: applied.h };
+    session.cropToBounds = true;
+    session.cropSelection = null; cropCachedImg = null; updateSizeInfo();
+    if (editorTab === 'crop') setupCropMode(); else renderPreviewCanvas(editorCurrentSrc);
+  });
+  session.cropApply = { generation: session.generation, promise: operation };
+  operation.finally(() => { if (session.cropApply && session.cropApply.promise === operation) session.cropApply = null; });
+  return operation;
+}
 function resetCrop() {
   if (!resetEditorSource()) return;
-  cropCachedImg = null;
-  setupCropMode();
+  cropCachedImg = null; setupCropMode();
+}
+function setCropPreset(rw, rh) {
+  if (!canChangeEditor() || editorSession.pending || !cropCachedImg || rw <= 0 || rh <= 0) return;
+  const cvs = document.getElementById('previewCanvas'), aspect = rw / rh;
+  let w, h;
+  if (cropImgNaturalW / cropImgNaturalH > aspect) { h = cropImgNaturalH; w = h * aspect; }
+  else { w = cropImgNaturalW; h = w / aspect; }
+  const natural = { x: (cropImgNaturalW - w) / 2, y: (cropImgNaturalH - h) / 2, w, h };
+  const rect = cropSourceRect(natural, cropImgNaturalW, cropImgNaturalH, cropImgNaturalW, cropImgNaturalH);
+  cropRect = cropCanvasRect(rect, cvs.width, cvs.height, cropImgNaturalW, cropImgNaturalH);
+  updateCropInputs(); drawCropOverlay();
 }
 
-function setCropPreset(rw, rh) {
-  if (!canChangeEditor()) return;
-  const cvs = document.getElementById('previewCanvas');
-  const aspect = rw / rh;
-  let w, h;
-  if (cvs.width / cvs.height > aspect) { h = cvs.height; w = h * aspect; }
-  else { w = cvs.width; h = w / aspect; }
-  cropRect = {x:(cvs.width-w)/2, y:(cvs.height-h)/2, w, h};
-  updateCropInputs();
-  drawCropOverlay();
-}
 
 // ── FLIP ──
 function applyFlip(dir) {
@@ -832,7 +885,9 @@ async function saveEdits(applyToAll = false) {
     const sameTransform = editorTransformFingerprint(rot, fh, fv, filters) ===
       editorTransformFingerprint(currentImage.rotation, currentImage.flipH, currentImage.flipV, currentImage.filters);
     const sourceChanged = editorCurrentSrc !== currentImage.src ||
-      JSON.stringify(session.pdfPageSizeMm) !== JSON.stringify(currentImage.pdfPageSizeMm);
+      JSON.stringify(session.pdfPageSizeMm) !== JSON.stringify(currentImage.pdfPageSizeMm) ||
+      JSON.stringify(session.cropPageBounds) !== JSON.stringify(currentImage.cropPageBounds) ||
+      session.cropToBounds !== currentImage.cropToBounds;
     const rotationDelta = rot - (currentImage.rotation || 0);
     const flipHDelta = !!fh !== !!currentImage.flipH;
     const flipVDelta = !!fv !== !!currentImage.flipV;
@@ -868,6 +923,8 @@ async function saveEdits(applyToAll = false) {
       return {
         ...image, filters: { ...(image.filters || {}) }, changed,
         inputPageSizeMm: copyPdfPageSize(isCurrent ? session.pdfPageSizeMm : image.pdfPageSizeMm),
+        inputCropPageBounds: isCurrent ? session.cropPageBounds : image.cropPageBounds,
+        inputCropToBounds: isCurrent ? session.cropToBounds : image.cropToBounds,
         inputPdfSource, nativeRotation,
         inputSrc: isCurrent ? editorCurrentSrc : image.src,
         targetRotation, targetFlipH, targetFlipV, targetFilters,
@@ -911,6 +968,12 @@ async function saveEdits(applyToAll = false) {
       const image = images.find(candidate => candidate._id === target._id);
       if (!image) throw new Error('A page was removed while saving');
       return { image, id: _imgId(), rotation: target.nativeRotation ? target.targetRotation : 0,
+        cropPageBounds: target.inputCropPageBounds ? (() => {
+          const bounds = target.needsBake
+            ? rotatedPdfPageSize(target.inputCropPageBounds, target.targetRotation) : target.inputCropPageBounds;
+          return { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+        })() : undefined,
+        cropToBounds: target.inputCropToBounds,
         pdfPageSizeMm: target.nativeRotation ? copyPdfPageSize(target.inputPageSizeMm) : rotatedPdfPageSize(target.inputPageSizeMm, target.targetRotation),
         pdfSource: !target.needsBake
           ? target.inputPdfSource || (target.inputSrc === target.originalSrc ? target.originalPdfSource : undefined) : undefined,
@@ -918,9 +981,9 @@ async function saveEdits(applyToAll = false) {
         src: result.src, thumb: result.thumb, originalSrc: target.originalSrc || target.src
       } };
     });
-    updates.forEach(({ image, id, entry, pdfPageSizeMm, pdfSource, rotation }) => {
+    updates.forEach(({ image, id, entry, pdfPageSizeMm, pdfSource, rotation, cropPageBounds, cropToBounds }) => {
       putStore(id, entry);
-      Object.assign(image, entry, { _pageId: pageIdentity(image), _id: id, pdfPageSizeMm,
+      Object.assign(image, entry, { _pageId: pageIdentity(image), _id: id, pdfPageSizeMm, cropPageBounds, cropToBounds,
         rotation, flipH: false, flipV: false, filters: {} });
       // Only an untouched original PDF page can be exported as native PDF.
       // A real pixel edit requires a raster page; Revert can restore the source.

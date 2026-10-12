@@ -219,7 +219,7 @@ async function runImportQueue() {
           if (!job.isCurrent()) break;
           const intake = typeof window !== 'undefined' ? window.PhotoPdfFileIntake : globalThis.PhotoPdfFileIntake;
           if (!intake) throw new Error('The file reader is unavailable. Please reload the page.');
-          const classification = await intake.classifyFile(file);
+          const classification = await intake.classifyFile(file, job);
           if (!job.isCurrent()) break;
           if (classification.kind === 'unsupported') {
             job.reportIssue(file, classification.reason);

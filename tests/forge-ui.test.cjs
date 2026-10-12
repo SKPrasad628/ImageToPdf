@@ -488,6 +488,38 @@ test('the actual download transfers one URL and byte reservation to the result p
   assert.deepEqual(h.revoked, ['blob:output-1']);
 });
 
+test('crop page sizing is a per-page undoable choice and changes output freshness', () => {
+  const h = harness(); h.seed();
+  h.run("images[0].cropPageBounds = {width: 100, height: 50}; images[0].cropToBounds = true; selectedConvertCard=0; snapshot('Crop'); refreshAll();");
+  assert.equal(h.element('cropPageLayout').hidden, false);
+  assert.equal(h.element('cropPageBoundsToggle').checked, true);
+  const before = h.api.captureExportState();
+  h.context.setForgeCropBounds(false);
+  assert.equal(h.element('cropPageBoundsToggle').checked, false);
+  assert.equal(h.run('images[0].cropToBounds'), false);
+  assert.equal(h.run('images[1].cropToBounds'), undefined);
+  assert.notEqual(h.api.captureExportState().documentRevision, before.documentRevision);
+  h.context.undo();
+  assert.equal(h.run('images[0].cropToBounds'), true);
+  h.context.setForgeActive(1);
+  assert.equal(h.element('cropPageLayout').hidden, true);
+  h.context.setForgeCropBounds(false);
+  assert.equal(h.run('images[1].cropToBounds'), undefined);
+});
+
+test('New document starts with no margins and a canceled clear keeps the current choice', () => {
+  const h = harness(); h.seed();
+  h.element('margin').value = '20';
+  h.run('confirm = () => false');
+  h.context.startAnotherForge();
+  assert.equal(h.element('margin').value, '20');
+  assert.equal(h.run('images.length'), 3);
+  h.run('confirm = () => true');
+  h.context.startAnotherForge();
+  assert.equal(h.element('margin').value, '0');
+  assert.equal(h.run('images.length'), 0);
+});
+
 test('a failed initial download cannot retain its URL or byte reservation', () => {
   const h = harness(); h.failDownload();
   assert.throws(() => h.context.downloadPdfBlob({ size: 321 }, 'broken.pdf'), /Download click failed/);

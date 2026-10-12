@@ -44,7 +44,7 @@
     assertFileBytes(file, classification.kind);
     if (classification.kind === 'image') {
       if (!validSize(classification.width, classification.height)) {
-        fail('Image dimensions could not be verified safely. Convert this file to PNG or JPEG first.');
+        fail('Image dimensions could not be verified safely. Download the original photo to your device and choose it again, or save a new PNG or JPEG copy.');
       }
       if (classification.width > limits.maxSourceSide || classification.height > limits.maxSourceSide ||
           classification.width > limits.maxSourcePixels / classification.height) {

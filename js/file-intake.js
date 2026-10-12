@@ -1,9 +1,11 @@
 (function (root) {
   'use strict';
 
-  // Read a bounded prefix, never the whole file, before browser image decoding.
+  // Read a bounded prefix plus sparse JPEG headers, never the whole file,
+  // before browser image decoding.
   // Header dimensions are a preflight hint; the decoder still verifies the file.
   const HEADER_BYTES = 64 * 1024;
+  const MAX_JPEG_MARKERS = 1024, MAX_HEADER_READ_BYTES = 256 * 1024;
   const FORMAT_MIMES = Object.freeze({
     jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
     bmp: 'image/bmp', avif: 'image/avif', pdf: 'application/pdf'
@@ -124,6 +126,57 @@
     return {};
   }
 
+  async function jpegHeader(file, prefix, job) {
+    // Camera JPEGs can put several full-sized EXIF/ICC/XMP segments before SOF.
+    // Walk their declared offsets instead of loading a growing file prefix.
+    // Only marker headers, SOF dimensions and bounded EXIF data are read.
+    const result = { ...dimensions(prefix, 'jpeg'), orientation: imageOrientation(prefix, 'jpeg'),
+      headerBytes: prefix.byteLength };
+    if (!Number.isSafeInteger(file.size) || file.size < 2 || typeof file.slice !== 'function') return result;
+    const read = async (start, length) => {
+      if (job && !job.isCurrent()) throw Object.assign(new Error('Image import canceled.'), { name: 'ImportCanceledError' });
+      if (!Number.isSafeInteger(start) || start < 0 || length < 1 || start > file.size - length) return null;
+      if (start + length <= prefix.byteLength) return prefix.subarray(start, start + length);
+      if (result.headerBytes > MAX_HEADER_READ_BYTES - length) return null;
+      const bytes = new Uint8Array(await file.slice(start, start + length).arrayBuffer());
+      if (job && !job.isCurrent()) throw Object.assign(new Error('Image import canceled.'), { name: 'ImportCanceledError' });
+      result.headerBytes += bytes.byteLength;
+      return bytes.byteLength === length ? bytes : null;
+    };
+    let offset = 2, sawSof = false, sawOrientation = false;
+    for (let count = 0; count < MAX_JPEG_MARKERS; count++) {
+      const markerBytes = await read(offset, 2);
+      if (!markerBytes || markerBytes[0] !== 0xff) break;
+      const marker = markerBytes[1];
+      if (marker === 0xff) { offset++; continue; }
+      offset += 2;
+      if (marker === 0xda || marker === 0xd9) break;
+      if (marker === 0x01 || marker === 0xd8 || marker >= 0xd0 && marker <= 0xd7) continue;
+      const lengthBytes = await read(offset, 2);
+      if (!lengthBytes) break;
+      const length = lengthBytes[0] << 8 | lengthBytes[1];
+      if (length < 2 || offset > file.size - length) break;
+      if (!sawSof && [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker) && length >= 8) {
+        const sof = await read(offset + 2, 6);
+        if (!sof) break;
+        result.width = sof[3] << 8 | sof[4]; result.height = sof[1] << 8 | sof[2];
+        sawSof = true;
+      }
+      if (marker === 0xe1 && length >= 16 && !sawOrientation) {
+        const identifier = await read(offset + 2, 6);
+        if (!identifier) break;
+        if (ascii(identifier, 0, 6) === 'Exif\0\0') {
+          const exif = await read(offset + 8, length - 8);
+          if (!exif) break;
+          const orientation = tiffOrientation(exif, 0, exif.byteLength);
+          if (orientation !== null) { result.orientation = orientation; sawOrientation = true; }
+        }
+      }
+      offset += length;
+    }
+    return result;
+  }
+
   function signature(bytes) {
     if (bytes.length >= 4 && ((bytes[0] === 0x49 && bytes[1] === 0x49 && (bytes[2] === 42 || bytes[2] === 43) && bytes[3] === 0) ||
         (bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[2] === 0 && (bytes[3] === 42 || bytes[3] === 43)))) return 'tiff';
@@ -145,7 +198,7 @@
     return null;
   }
 
-  async function classifyFile(file) {
+  async function classifyFile(file, job) {
     const name = String(file && file.name || 'Unnamed file');
     const extension = (name.match(/\.([^.]+)$/) || [])[1];
     const ext = extension && extension.toLowerCase();
@@ -164,14 +217,22 @@
     if (!format) {
       return { kind: 'unsupported', format: 'unknown', reason: 'Unsupported format. Use JPEG, PNG, WebP, GIF, BMP, or PDF.' };
     }
-    const raster = dimensions(header, detected);
-    const orientation = imageOrientation(header, detected);
+    let raster = dimensions(header, detected), orientation = imageOrientation(header, detected), headerBytes = header.byteLength;
+    if (detected === 'jpeg') {
+      try {
+        const jpeg = await jpegHeader(file, header, job);
+        raster = { width: jpeg.width, height: jpeg.height }; orientation = jpeg.orientation; headerBytes = jpeg.headerBytes;
+      } catch (error) {
+        if (error.name === 'ImportCanceledError') throw error;
+        return { kind: 'unsupported', format: 'jpeg', reason: 'The photo could not be read. Download the original photo to your device, then choose it again.' };
+      }
+    }
     const display = Number.isSafeInteger(raster.width) && raster.width > 0 &&
       Number.isSafeInteger(raster.height) && raster.height > 0
       ? { displayWidth: orientation >= 5 ? raster.height : raster.width,
           displayHeight: orientation >= 5 ? raster.width : raster.height } : {};
     return { kind: format === 'pdf' ? 'pdf' : 'image', format, mime: FORMAT_MIMES[format],
-      signatureDetected: Boolean(detected), headerBytes: header.byteLength,
+      signatureDetected: Boolean(detected), headerBytes,
       ...raster, orientation, ...display };
   }
 

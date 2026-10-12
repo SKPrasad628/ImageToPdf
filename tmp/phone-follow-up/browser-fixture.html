@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><base href="../../">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#03045e">
+<meta name="description" content="Gather images and PDF pages, arrange their order, and forge a single PDF. A private, browser-based print desk.">
+<title>Page Forge — Create your PDF</title>
+<script src="vendor/jspdf/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/page-forge.css">
+<link rel="stylesheet" href="css/minimal-ui.css">
+<link rel="stylesheet" href="css/minimal-editor.css">
+</head>
+<body class="forge-app hints-off"><aside style="padding:10px;background:#192d3e;color:white" aria-label="Test fixture controls">
+<button type="button" id="qaCameraFiles" onclick="qaLoadCameraFiles()">Load camera JPEG fixtures</button>
+<span id="qaPhoneStatus" role="status">Synthetic camera photos with size headers beyond 196 KiB</span></aside>
+<a class="skip-link" href="#page-convert">Skip to the workspace</a>
+<header class="site-header">
+  <a class="forge-brand" href="#page-convert" aria-label="Page Forge home"><span class="forge-sigil" aria-hidden="true"></span><span>Page Forge</span></a>
+  <div class="header-right"><span class="local-note">Files stay in your browser</span><details class="more-menu help-menu" id="helpMenu"><summary>Help <span aria-hidden="true">⌄</span></summary><div class="more-menu-items"><button type="button" class="btn" onclick="openForgeDialog('toolsDialog')">How to use Page Forge</button><button type="button" class="btn" onclick="showForgeShortcuts()">Keyboard shortcuts</button><button type="button" class="btn" onclick="openForgeDialog('privacyDialog')">File requirements &amp; privacy</button><button type="button" class="btn" onclick="openForgeDialog('aboutDialog')">About Page Forge</button></div></details><button type="button" class="dark-toggle" id="darkToggle" aria-label="Use deeper night colors" aria-pressed="false" onclick="toggleDark()">◐</button></div>
+</header>
+
+<main class="page active" id="page-convert" tabindex="-1">
+  <section class="forge-hero" id="forgeHero" aria-labelledby="forgeTitle">
+    <h1 id="forgeTitle">Create your PDF</h1>
+    <p>Add images or PDFs to create your document.</p>
+    <ol class="workflow-guide" aria-label="How it works"><li>Add files</li><li>Arrange &amp; edit</li><li>Forge PDF</li></ol>
+  </section>
+
+  <div class="forge-shell">
+    <section class="forge-result" id="forgeResult" hidden aria-labelledby="successTitle">
+      <div class="success" id="successMsg"><span class="result-sigil" aria-hidden="true">◇</span><div><h2 id="successTitle">Your PDF is ready</h2><p id="successDetail"></p></div></div>
+      <p class="export-freshness" id="exportFreshnessStatus" hidden role="status"></p>
+      <section id="exportReport" class="export-report" hidden aria-live="polite" aria-label="Export result"></section>
+      <div class="result-actions"><button type="button" class="btn btn-primary" id="downloadAgainBtn" onclick="downloadLastForge()" hidden>Download PDF</button><button type="button" class="btn" onclick="returnToForgePages()">Continue editing</button><button type="button" class="btn" onclick="startAnotherForge()">New document</button></div>
+    </section>
+
+    <div class="pdf-loading" id="pdfLoading" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><div class="pdf-loading-lbl" id="pdfLoadingLbl">Gathering the pages…</div><div class="pdf-loading-sub" id="pdfLoadingSub">Reading your file…</div><div class="pdf-prog-track"><div class="pdf-prog-fill" id="pdfProgFill"></div></div></div>
+
+    <section class="drop-zone" id="dropZone" aria-labelledby="uploadTitle">
+      <input type="file" id="fileInput" aria-label="Choose images or PDFs" aria-describedby="uploadOrderHint" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple>
+      <div class="drop-inner"><span class="upload-sigil" aria-hidden="true">↑</span><div><h2 id="uploadTitle">Add images or PDFs</h2><p>Drop files here or choose from your device</p></div><span class="browse-btn">Choose files <span aria-hidden="true">↗</span></span></div>
+      <p class="upload-formats">JPG · PNG · WEBP · PDF <span>and more</span></p>
+      <p class="upload-order-hint" id="uploadOrderHint">Files become pages in upload order. You can rearrange them anytime.</p>
+    </section>
+    <p class="import-order-status" id="importOrderStatus" role="status" hidden></p>
+    <div id="importReport" class="import-report" hidden role="status"></div>
+    <details class="file-requirements"><summary>File requirements &amp; privacy</summary><p>Your files are processed in this browser. Page Forge does not upload your images or PDFs.</p><ul><li>JPEG, PNG, WebP, GIF, and BMP: up to 256 MiB and 256 megapixels (65,535 pixels per side). Large images are automatically fitted to at most 16 megapixels and 8,192 pixels per side, preserving aspect ratio.</li><li>Fitted images use lossless PNG working copies. Their dimensions may be reduced further to fit the available working-file budget. Your device originals stay unchanged.</li><li>PDFs: up to 50 MiB. A document may contain up to 200 pages.</li><li>Animated images become a still picture. TIFF, SVG, and unverifiable image formats need conversion first.</li><li>Working files and history share a 128 MiB budget. Raster exports are limited to 64 megapixels in total and 128 MiB of output.</li></ul></details>
+
+    <div class="toolbar" id="toolbar">
+      <div class="document-heading"><div class="document-name"><label for="filename">Document name</label><input type="text" id="filename" value="my-photos" spellcheck="false" autocomplete="off" aria-describedby="documentNameHint"><span id="documentNameHint" class="visually-hidden">The downloaded filename ends in .pdf.</span></div><span class="document-count"><span class="badge-count" id="countBadge">0</span> <span id="documentPageUnit">pages</span></span></div>
+      <div class="document-tools"><button type="button" class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button><button type="button" class="btn" id="redoBtn" onclick="redo()" disabled>↷ Redo</button><button type="button" class="btn btn-primary" onclick="document.getElementById('fileInput').click()">+ Add files</button><details class="more-menu" id="moreMenu"><summary>Document <span aria-hidden="true">⌄</span></summary><div class="more-menu-items"><button type="button" class="btn" data-document-action onclick="sortByName()">Sort A–Z</button><button type="button" class="btn" data-document-action onclick="reverseOrder()">Reverse order</button><button type="button" class="btn" id="discardHistoryBtn" onclick="discardUndoHistory()">Free undo history</button><button type="button" data-document-action class="btn btn-red" onclick="clearAll()">Clear document</button></div></details></div>
+    </div>
+    <div class="undo-bar" id="undoBar" aria-label="Document history"><span id="undoLabel" role="status"></span></div>
+    <div class="selection-toolbar" id="selectionToolbar" hidden aria-label="Selected page actions"><span id="selInfo" role="status">0 selected</span><button type="button" class="btn" id="selectAllBtn" onclick="toggleSelectAll()">Select all</button><button type="button" class="btn" id="rotateSelectionBtn" onclick="rotateForgeSelection()" disabled>Rotate selected 90°</button><button type="button" class="btn btn-red" id="removeSelectionBtn" onclick="removeForgeSelection()" disabled>Remove selected</button><button type="button" class="btn" id="selectionDoneBtn" onclick="finishForgeSelection()">Done</button></div>
+    <div class="kbd-hints" id="kbdHints"><span class="kbd"><kbd>Del</kbd> remove active or checked pages</span><span class="kbd"><kbd>←</kbd><kbd>→</kbd> preview focused pages</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</span><span class="kbd"><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</span><button type="button" class="kbd-dismiss" aria-label="Hide keyboard shortcuts" onclick="toggleHints(false)">×</button></div>
+
+    <div class="workspace-views" id="workspaceViews" role="tablist" aria-label="Document views"><button type="button" id="workspaceViewPages" role="tab" data-workspace-view="pages" aria-controls="pagesPanel" aria-selected="false" tabindex="-1" onclick="setForgeWorkspaceView('pages')">Pages</button><button type="button" id="workspaceViewPreview" role="tab" data-workspace-view="preview" aria-controls="previewPanel" aria-selected="true" onclick="setForgeWorkspaceView('preview')">Preview</button><button type="button" id="workspaceViewLayout" role="tab" data-workspace-view="layout" aria-controls="settingsMountConvert" aria-selected="false" tabindex="-1" onclick="setForgeWorkspaceView('layout')">Layout</button></div>
+    <div class="forge-workspace" id="forgeWorkspace" data-view="preview">
+      <aside class="forge-pages" id="pagesPanel" aria-label="Document pages" tabindex="-1"><div class="panel-heading"><h2>Pages</h2><button type="button" class="btn" id="selectionStartBtn" aria-controls="selectionToolbar" aria-expanded="false" onclick="startForgeSelection()">Select pages</button></div><p class="page-order-hint">Drag or hold a thumbnail to reorder, or use Page actions.</p><div class="img-grid" id="imgGrid"></div><button type="button" class="btn" id="previewSelectedPageBtn" onclick="setForgeWorkspaceView('preview')">Preview current page</button></aside>
+      <section class="forge-proof" id="previewPanel" aria-labelledby="proofTitle" tabindex="-1">
+        <div class="proof-heading"><h2 id="proofTitle">Preview</h2><span id="activePagePosition" aria-live="polite">Page 0 of 0</span></div>
+        <div class="proof-toolbar"><div class="proof-dimension" id="forgeDimensions">210 × 297 mm</div><div class="preview-zoom-controls" role="group" aria-label="Preview zoom"><button type="button" class="btn preview-zoom-step" id="previewZoomOut" aria-label="Zoom out" title="Zoom out" onclick="PageForgePreview.zoomOut()" disabled>−</button><output id="previewZoomLabel" for="previewZoomOut previewZoomIn previewZoomFit" aria-label="Zoom relative to fit page" aria-live="polite" aria-atomic="true">100%</output><button type="button" class="btn preview-zoom-step" id="previewZoomIn" aria-label="Zoom in" title="Zoom in" onclick="PageForgePreview.zoomIn()" disabled>+</button><button type="button" class="btn" id="previewZoomFit" onclick="PageForgePreview.fit()" disabled>Fit page</button></div><span class="preview-interaction-hint" id="previewInteractionHint" hidden>Drag to move · Scroll to zoom</span></div>
+        <p class="visually-hidden" id="previewZoomHint">Zoom in to inspect details. While enlarged, scroll up to zoom in and down to zoom out. At 100%, scrolling moves the webpage. Drag the enlarged preview to move around it. When focused, use arrow keys to pan, plus or minus to zoom, and zero to fit the page. Ctrl and the mouse wheel also zoom this preview. Choose Fit page to show the whole page.</p>
+        <div class="proof-stage" id="forgePreviewStage" tabindex="0" role="region" aria-label="Page preview" aria-describedby="previewZoomHint"><div class="forge-paper" id="forgePaper" aria-busy="false"><canvas id="forgePreviewCanvas" role="img" aria-label="PDF output preview" hidden></canvas><p id="forgePreviewEmpty">Add images to preview your PDF</p></div></div>
+        <div class="proof-caption"><p id="forgePreviewLabel" aria-live="polite">Your manuscript awaits</p><p id="forgePlacementNote"></p><p id="pageImportAdjustment" hidden></p></div>
+        <div class="proof-actions" aria-label="Current page actions"><button type="button" class="btn" data-page-action="edit" onclick="editForgePage()">Edit page</button><button type="button" class="btn" data-page-action="rotate" onclick="rotateForgePage()">↻ Rotate</button><details class="more-menu" id="pageActionsMenu"><summary>Page actions <span aria-hidden="true">⌄</span></summary><div class="more-menu-items"><button type="button" class="btn" data-page-action="duplicate" onclick="duplicateForgePage()">Duplicate page</button><button type="button" class="btn" data-page-action="earlier" onclick="moveForgePage(-1)">Move earlier</button><button type="button" class="btn" data-page-action="later" onclick="moveForgePage(1)">Move later</button><button type="button" class="btn" data-page-action="view" onclick="viewForgePage()">Full size preview</button><button type="button" class="btn btn-red" data-page-action="delete" onclick="deleteForgePage()">Remove this page</button></div></details></div>
+      </section>
+      <aside id="settingsMountConvert" class="binding-panel" aria-label="Page layout" tabindex="-1">
+        <details class="binding-options" id="bindingOptions"><summary>Change layout <span id="layoutSummary">A4 · Auto orientation · No margins · Full image</span></summary>
+        <div class="settings-bar" id="settingsBar"><h2>Page layout</h2><p class="binding-scope" id="layoutScope">Applies to all image pages</p>
+          <div id="imageLayoutControls"><div class="crop-page-layout" id="cropPageLayout" hidden><label for="cropPageBoundsToggle"><input type="checkbox" id="cropPageBoundsToggle" checked onchange="setForgeCropBounds(this.checked)">Use cropped page size</label><p class="resource-hint">Turn off to place this crop on the paper chosen below.</p></div><fieldset class="binding-section"><legend>Paper</legend><div class="sg"><label for="pageSize">Page size</label><select id="pageSize"><option value="a4">A4 · 210 × 297 mm</option><option value="letter">Letter · 8.5 × 11 in</option><option value="a3">A3 · 297 × 420 mm</option><option value="a5">A5 · 148 × 210 mm</option><option value="fit">Fit to image</option></select></div><div class="sg"><label for="orientation">Orientation</label><select id="orientation"><option value="auto">Auto per image</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></div></fieldset>
+          <fieldset class="binding-section"><legend>Image placement</legend><div class="sg"><label for="margin">Margins on every edge (mm)</label><input type="number" id="margin" value="0" min="0" max="40" step="1"></div><div class="margin-presets" role="group" aria-label="Margin presets"><button type="button" class="btn" data-margin="0" onclick="setForgeMargin(0)">None</button><button type="button" class="btn" data-margin="10" onclick="setForgeMargin(10)">10 mm</button><button type="button" class="btn" data-margin="20" onclick="setForgeMargin(20)">20 mm</button></div><div class="sg"><label for="imgFit">Image placement</label><select id="imgFit"><option value="contain">Full image</option><option value="fill">Fill page · crop to margins</option><option value="actual">Photo print size</option></select></div></fieldset>
+          <details class="binding-advanced" id="advancedBinding" hidden><summary>Print size controls</summary><fieldset class="binding-section"><legend>Print scale</legend><div class="sg"><label for="printDpi">Photo print DPI</label><input type="number" id="printDpi" value="300" min="1" max="2400" step="1" aria-describedby="printSizeHint"></div><div class="sg" id="printOverflowControls"><label for="oversize">If print size is too large</label><select id="oversize" aria-describedby="printSizeHint"><option value="shrink">Scale down to fit</option><option value="crop">Keep size and crop</option></select></div><p class="print-size-hint" id="printSizeHint"></p></fieldset></details>
+          <details class="binding-advanced" id="outputOptions"><summary>Image compression</summary><p id="qualityLosslessStatus" class="quality-lossless" hidden>Original quality — lossless export</p><div class="sg" id="qualityCompressionControls"><label for="quality">Image quality</label><select id="quality" aria-describedby="qualityModeHint"><option value="0.85" selected>Standard</option><option value="0.95">High</option><option value="1">Maximum JPEG quality</option><option value="0.72">Smaller file</option></select></div><p class="print-size-hint" id="qualityModeHint">Preserve original quality avoids added lossy compression.</p></details></div>
+          <fieldset class="binding-section" id="pdfContentGroup" hidden><legend>Imported PDF pages</legend><div class="sg"><label for="pdfContentMode">PDF content</label><select id="pdfContentMode" aria-describedby="pdfContentHint"><option value="preserve">Preserve PDF pages</option><option value="images">Images · apply layout</option></select></div><p class="print-size-hint" id="pdfContentHint" hidden></p></fieldset><p class="print-size-hint" id="pdfExportNotice" hidden></p>
+        </div>
+        </details>
+      </aside>
+    </div>
+
+    <section class="convert-section export-dock" id="convertSection" aria-label="Forge your PDF">
+      <div class="export-meta"><p id="convertSummary">Your pages, bound together.</p><p id="sizeEstimate"></p></div>
+      <div class="export-controls"><div class="export-actions"><button type="button" class="quality-toggle" id="preserveQualityBtn" aria-pressed="false" aria-describedby="preserveQualityHint" onclick="togglePreserveQuality()"><span>Preserve original quality</span><span class="quality-toggle-state" id="preserveQualityState" aria-hidden="true">Off</span></button><button type="button" class="convert-btn" id="convertBtn" onclick="generatePDF()"><span aria-hidden="true">◇</span><span>Forge PDF</span><span aria-hidden="true">→</span></button></div><details class="quality-explanation" id="qualityExplanation"><summary>About image quality</summary><p class="quality-hint" id="preserveQualityHint">Avoids new lossy compression of current image detail. Files may be larger. Earlier edits, compression, and automatic fitting cannot be undone by this option.</p></details></div>
+      <div class="prog-wrap" id="progWrap" role="status" aria-live="polite"><span class="binding-ring" aria-hidden="true"></span><div class="prog-track"><div class="prog-fill" id="progFill"></div></div><div class="prog-lbl" id="progLbl">Binding the pages…</div></div>
+    </section>
+  </div>
+</main>
+
+<!-- Compatibility surfaces for saved processing paths; the visible workspace is unified. -->
+<div id="legacyViews" hidden inert>
+<div class="tab-bar"><button class="tab active" onclick="switchTab('convert')">Convert</button><button class="tab" onclick="switchTab('edit')">Edit PDF</button></div>
+<div class="page" id="page-edit">
+  <div class="hero">
+    <h1>Edit your<br><em>PDF</em></h1>
+    <p>Arrange PDF pages while keeping their text and vectors. Image edits change a page into a picture; export details explain the limits.</p>
+  </div>
+  <div class="wrap" style="padding-top:0">
+    <!-- PDF loading indicator for edit tab -->
+    <div class="pdf-loading" id="pdfLoadingEdit">
+      <div class="spinner"></div>
+      <div class="pdf-loading-lbl" id="pdfLoadingEditLbl">Loading PDF…</div>
+      <div class="pdf-loading-sub" id="pdfLoadingEditSub">Rendering pages…</div>
+      <div class="pdf-prog-track"><div class="pdf-prog-fill" id="pdfProgFillEdit"></div></div>
+    </div>
+
+    <div class="drop-zone" id="pdfDropZone">
+      <input type="file" id="pdfFileInput" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple>
+      <div class="drop-icon">📄</div>
+      <h3>Drop a PDF here</h3>
+      <p>Reorder, delete, duplicate, rotate, crop, resize, and filter pages · Export as a new PDF when done</p>
+      <div class="browse-btn">Browse files</div>
+    </div>
+
+    <div id="importReportEdit" class="import-report" hidden role="status"></div>
+    <p class="resource-hint">Up to 200 pages · images up to 32 MB and 16 megapixels · PDFs up to 50 MB. The working-file budget is 128 MB; image exports are limited to 64 megapixels in total.</p>
+    <!-- Merge PDF section -->
+    <div class="merge-section" id="mergePdfSection" style="display:none">
+      <input type="file" id="mergePdfInput" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.gif,.bmp" multiple onchange="handleMergeFiles(this.files)">
+      <div style="font-size:1.2rem">📎</div>
+      <div style="flex:1">
+        <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-weight:700;font-size:.82rem">Merge another PDF</div>
+        <p>Click to append pages from another PDF or images</p>
+      </div>
+      <button class="btn btn-blue merge-btn">+ Merge PDF / Images</button>
+    </div>
+  </div>
+
+  <!-- #settingsBar is re-mounted here while the Edit view is active -->
+  <div class="wrap" id="settingsMountEdit" style="padding-top:0;padding-bottom:0"></div>
+  <div class="wrap" style="padding-top:0;padding-bottom:0">
+    <div class="prog-wrap" id="progWrapEdit">
+      <div class="prog-track"><div class="prog-fill" id="progFillEdit"></div></div>
+      <div class="prog-lbl" id="progLblEdit">Processing…</div>
+    </div>
+  </div>
+
+  <div class="pdf-editor-wrap" id="pdfEditorWrap" style="display:none">
+    <div class="pdf-pages-panel">
+      <h3>
+        <span>Pages <span class="badge-count" id="pdfPageCount">0</span></span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-blue" style="font-size:.75rem;padding:5px 10px" onclick="document.getElementById('pdfFileInput').click()">+ Add</button>
+          <button class="btn" style="font-size:.75rem;padding:5px 10px" onclick="document.getElementById('mergePdfInput').click()">Merge PDF</button>
+          <button class="btn btn-primary" id="editExportBtn" style="font-size:.75rem;padding:5px 10px" onclick="exportEditedPDF()">Export PDF</button>
+        </div>
+      </h3>
+      <div class="pdf-page-list" id="pdfPageList"></div>
+    </div>
+
+    <div class="pdf-detail-panel">
+      <h3>Selected page</h3>
+      <div class="detail-preview" id="detailPreview" onclick="openLightbox()">
+        <span style="color:var(--muted);font-size:.8rem">Select a page</span>
+      </div>
+      <div class="detail-actions" id="detailActions" style="display:none">
+        <button class="btn btn-blue" onclick="openEditorFor(selectedPdfPage)">✏️ Edit this page</button>
+        <button class="btn" onclick="duplicatePage(selectedPdfPage)">⧉ Duplicate</button>
+        <button class="btn" onclick="rotatePage(selectedPdfPage, 90)">↻ Rotate 90°</button>
+        <button class="btn" onclick="rotatePage(selectedPdfPage, -90)">↺ Rotate –90°</button>
+        <button class="btn" onclick="movePage(selectedPdfPage, -1)">↑ Move up</button>
+        <button class="btn" onclick="movePage(selectedPdfPage, 1)">↓ Move down</button>
+        <button class="btn btn-red" onclick="deletePage(selectedPdfPage)">🗑 Delete page</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+<dialog class="modal-bg" id="editorModal" aria-labelledby="editorModalTitle">
+  <svg aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute"><defs>
+    <symbol id="editor-icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="editor-icon-rotate" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></symbol>
+    <symbol id="editor-icon-resize" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M4 4l6 6M20 20l-6-6"/></symbol>
+    <symbol id="editor-icon-crop" viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14"/></symbol>
+    <symbol id="editor-icon-flip" viewBox="0 0 24 24"><path d="M12 3v18M9 6 3 18h6ZM15 6l6 12h-6Z"/></symbol>
+    <symbol id="editor-icon-adjust" viewBox="0 0 24 24"><path d="M4 6h5m4 0h7M4 12h9m4 0h3M4 18h3m4 0h9"/><circle cx="11" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/></symbol>
+    <symbol id="editor-icon-document" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8ZM14 3v5h5M8 12h8M8 16h8"/></symbol>
+    <symbol id="editor-icon-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16"/></symbol>
+    <symbol id="editor-icon-vivid" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
+    <symbol id="editor-icon-soften" viewBox="0 0 24 24"><path d="M5 8h14M3 12h18M5 16h14"/></symbol>
+    <symbol id="editor-icon-all" viewBox="0 0 24 24"><path d="M7 7h13v14H7ZM4 17V3h13"/></symbol>
+  </defs></svg>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="editorModalTitle">Edit image</h2>
+      <button class="modal-close" id="editorCloseBtn" aria-label="Close editor" onclick="closeEditor()"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-close"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="editor-pdf-warning" id="editorPdfWarning" hidden>Rotating in 90° steps keeps native PDF content. Crop, resize, flips, filters, and other rotations turn this page into a picture when saved: its searchable text, vectors, links, forms, and accessibility content are lost. Saving without changes preserves the page.</p>
+      <p class="editor-pdf-warning" id="editorImportNotice" hidden></p>
+      <div class="editor-tabs" role="tablist" aria-label="Page editing tools" onkeydown="handleEditorTabKey(event)">
+        <button class="et on" id="editor-tab-rotate" role="tab" aria-controls="panel-rotate" aria-selected="true" data-editor-tab="rotate" onclick="switchEditorTab('rotate')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-rotate"/></svg>Rotate &amp; flip</button>
+        <button class="et" id="editor-tab-crop" role="tab" aria-controls="panel-crop" aria-selected="false" tabindex="-1" data-editor-tab="crop" onclick="switchEditorTab('crop')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-crop"/></svg>Crop</button>
+        <button class="et" id="editor-tab-resize" role="tab" aria-controls="panel-resize" aria-selected="false" tabindex="-1" data-editor-tab="resize" onclick="switchEditorTab('resize')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-resize"/></svg>Resize</button>
+        <button class="et" id="editor-tab-filters" role="tab" aria-controls="panel-filters" aria-selected="false" tabindex="-1" data-editor-tab="filters" onclick="switchEditorTab('filters')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-adjust"/></svg>Adjust</button>
+      </div>
+
+      <div class="editor-preview">
+        <canvas id="previewCanvas"></canvas>
+      </div>
+      <p class="editor-save-hint">Preview your changes here. Save this page adds them to your document.</p>
+
+      <!-- ROTATE -->
+      <div class="ctrl-group et-panel" id="panel-rotate" role="tabpanel" aria-labelledby="editor-tab-rotate">
+        <h4>Rotate</h4>
+        <div class="ctrl-row">
+          <button class="btn" onclick="quickRotate(-90)"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" style="transform:scaleX(-1)"><use href="#editor-icon-rotate"/></svg>−90°</button>
+          <button class="btn" onclick="quickRotate(90)"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-rotate"/></svg>+90°</button>
+          <button class="btn" onclick="quickRotate(180)">180°</button>
+          <button class="btn" onclick="quickRotate(0, true)">Reset</button>
+        </div>
+        <div class="editor-current-angle">Current angle: <strong id="currentAngleDisplay">0°</strong></div>
+        <details class="editor-disclosure" id="editorAngleDetails">
+          <summary>Custom angle</summary>
+          <div class="ctrl-row">
+            <label for="customAngle">Angle (degrees)</label>
+            <input class="angle-input" type="number" id="customAngle" value="0" min="-360" max="360" step="1">
+            <button class="btn btn-blue" onclick="applyCustomAngle()">Update preview</button>
+          </div>
+        </details>
+        <div class="editor-transform-flip" id="panel-flip">
+          <h4>Flip</h4>
+          <div class="flip-row">
+            <button class="btn" onclick="applyFlip('h')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-flip"/></svg>Horizontal</button>
+            <button class="btn" onclick="applyFlip('v')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" style="transform:rotate(90deg)"><use href="#editor-icon-flip"/></svg>Vertical</button>
+            <button class="btn" onclick="applyFlip('both')">Both</button>
+            <button class="btn" onclick="resetFlip()">Reset flip</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESIZE -->
+      <div class="ctrl-group et-panel" id="panel-resize" role="tabpanel" aria-labelledby="editor-tab-resize" style="display:none">
+        <h4>Resize</h4>
+        <p class="editor-tool-hint">Enter the new dimensions, then select Update preview.</p>
+        <div class="size-row">
+          <div class="sg"><label for="resW">Width (px)</label><input type="number" id="resW" min="1" max="8192" step="1" aria-describedby="resizeLimitHint" oninput="onResizeInput('w')"></div>
+          <div class="sg"><label for="resH">Height (px)</label><input type="number" id="resH" min="1" max="8192" step="1" aria-describedby="resizeLimitHint" oninput="onResizeInput('h')"></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:1px">
+            <label for="lockAR">Lock aspect ratio</label>
+            <input type="checkbox" id="lockAR" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--blue)">
+          </div>
+        </div>
+        <div class="size-info" id="sizeInfo"></div>
+        <p class="resource-hint" id="resizeLimitHint">Resize and rotated output must fit within 16 megapixels and 8,192 pixels per side. Changes that exceed these limits are rejected.</p>
+        <details class="editor-disclosure" id="editorResizeDetails">
+          <summary>Resize by percentage</summary>
+          <div class="ctrl-row">
+            <button class="btn" onclick="setResizePercent(50)">50%</button>
+            <button class="btn" onclick="setResizePercent(75)">75%</button>
+            <button class="btn" onclick="setResizePercent(150)">150%</button>
+            <button class="btn" onclick="setResizePercent(200)">200%</button>
+          </div>
+        </details>
+        <div class="editor-tool-actions">
+          <button class="btn btn-blue" onclick="applyResize()">Update preview</button>
+          <button class="btn" onclick="resetResize()">Restore original size</button>
+        </div>
+      </div>
+
+      <!-- CROP -->
+      <div class="ctrl-group et-panel" id="panel-crop" role="tabpanel" aria-labelledby="editor-tab-crop" style="display:none">
+        <h4>Crop</h4>
+        <p class="crop-hint" id="cropHint">Drag a corner or edge to resize the selection, or drag inside it to move. Update preview removes everything outside the selection. Open Crop coordinates for precise control.</p>
+        <div class="ctrl-row" aria-label="Crop shapes">
+          <button class="btn" onclick="setCropPreset(1,1)">1:1</button>
+          <button class="btn" onclick="setCropPreset(4,3)">4:3</button>
+          <button class="btn" onclick="setCropPreset(16,9)">16:9</button>
+          <button class="btn" onclick="setCropPreset(3,4)">3:4</button>
+        </div>
+        <details class="editor-disclosure" id="editorCropDetails">
+          <summary>Crop coordinates</summary>
+          <div class="crop-coords">
+            <div class="sg"><label for="cropX">X, left (px)</label><input type="number" id="cropX" value="0" min="0" aria-describedby="cropHint" oninput="updateCropFromInputs()"></div>
+            <div class="sg"><label for="cropY">Y, top (px)</label><input type="number" id="cropY" value="0" min="0" aria-describedby="cropHint" oninput="updateCropFromInputs()"></div>
+            <div class="sg"><label for="cropW">Crop width (px)</label><input type="number" id="cropW" value="100" min="1" aria-describedby="cropHint" oninput="updateCropFromInputs()"></div>
+            <div class="sg"><label for="cropH">Crop height (px)</label><input type="number" id="cropH" value="100" min="1" aria-describedby="cropHint" oninput="updateCropFromInputs()"></div>
+          </div>
+        </details>
+        <div class="editor-tool-actions">
+          <button class="btn btn-blue" onclick="applyCrop()">Update preview</button>
+          <button class="btn" onclick="resetCrop()">Restore original image</button>
+        </div>
+      </div>
+
+      <!-- FILTERS -->
+      <div class="ctrl-group et-panel" id="panel-filters" role="tabpanel" aria-labelledby="editor-tab-filters" style="display:none">
+        <h4>Adjust</h4>
+        <p class="editor-tool-hint">Presets and sliders preview immediately. Use Update preview to keep this adjustment before adding another.</p>
+        <div class="ctrl-row editor-presets" aria-label="Adjustment presets">
+          <button class="btn" onclick="applyFilterPreset('document')" title="High contrast B&amp;W for scanned text"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-document"/></svg>Document</button>
+          <button class="btn" onclick="applyFilterPreset('grayscale')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-contrast"/></svg>B&amp;W</button>
+          <button class="btn" onclick="applyFilterPreset('vivid')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-vivid"/></svg>Vivid</button>
+          <button class="btn" onclick="applyFilterPreset('soften')"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-soften"/></svg>Soften</button>
+        </div>
+        <div class="filter-grid">
+          <div class="filter-item">
+            <label for="f-brightness">Brightness <span class="filter-val" id="fv-brightness" aria-hidden="true">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-brightness" aria-valuetext="100 percent" oninput="updateFilter('brightness',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label for="f-contrast">Contrast <span class="filter-val" id="fv-contrast" aria-hidden="true">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-contrast" aria-valuetext="100 percent" oninput="updateFilter('contrast',this.value,'%')">
+          </div>
+        </div>
+        <details class="editor-disclosure" id="editorAdjustmentDetails">
+          <summary>More adjustments</summary>
+          <div class="filter-grid">
+          <div class="filter-item">
+            <label for="f-saturate">Saturation <span class="filter-val" id="fv-saturate" aria-hidden="true">100%</span></label>
+            <input type="range" min="0" max="200" value="100" id="f-saturate" aria-valuetext="100 percent" oninput="updateFilter('saturate',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label for="f-blur">Blur <span class="filter-val" id="fv-blur" aria-hidden="true">0px</span></label>
+            <input type="range" min="0" max="20" value="0" id="f-blur" aria-valuetext="0 pixels" oninput="updateFilter('blur',this.value,'px')">
+          </div>
+          <div class="filter-item">
+            <label for="f-grayscale">Grayscale <span class="filter-val" id="fv-grayscale" aria-hidden="true">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-grayscale" aria-valuetext="0 percent" oninput="updateFilter('grayscale',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label for="f-sepia">Sepia <span class="filter-val" id="fv-sepia" aria-hidden="true">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-sepia" aria-valuetext="0 percent" oninput="updateFilter('sepia',this.value,'%')">
+          </div>
+          <div class="filter-item">
+            <label for="f-hue-rotate">Hue rotation <span class="filter-val" id="fv-hue-rotate" aria-hidden="true">0°</span></label>
+            <input type="range" min="0" max="360" value="0" id="f-hue-rotate" aria-valuetext="0 degrees" oninput="updateFilter('hue-rotate',this.value,'deg')">
+          </div>
+          <div class="filter-item">
+            <label for="f-invert">Invert <span class="filter-val" id="fv-invert" aria-hidden="true">0%</span></label>
+            <input type="range" min="0" max="100" value="0" id="f-invert" aria-valuetext="0 percent" oninput="updateFilter('invert',this.value,'%')">
+          </div>
+          </div>
+        </details>
+        <div class="editor-tool-actions">
+          <button class="btn btn-blue" onclick="applyFilters()">Update preview</button>
+          <button class="btn" onclick="resetFilters()" title="Reset the sliders; Revert page restores original pixels">Reset sliders</button>
+        </div>
+      </div>
+
+      <details class="editor-disclosure editor-secondary-actions" id="editorBatchDetails">
+        <summary>Apply adjustments to all pages</summary>
+        <p class="resource-hint" id="applyAllHint">Save this page's edits and add the adjustment steps chosen in this session to every page. Rotation and flip changes are added to each page's existing orientation and effects. Crop and resize affect this page only. This saves the edits and closes the editor.</p>
+        <button class="btn btn-blue" id="applyAllBtn" onclick="saveEdits(true)" aria-describedby="applyAllHint"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-all"/></svg>Save adjustments to all pages</button>
+      </details>
+      <details class="editor-disclosure editor-secondary-actions" id="editorRevertDetails">
+        <summary>Revert page</summary>
+        <p class="resource-hint" id="editorRevertHint">Restore this page's original working image and clear its rotation, flips, and adjustment steps. Select Save this page to keep the restored version.</p>
+        <button class="btn btn-red" onclick="revertAll()" aria-describedby="editorRevertHint">Revert to original</button>
+      </details>
+    </div>
+    <div class="editor-footer">
+      <button class="btn" id="editorCancelBtn" onclick="closeEditor()">Cancel</button>
+      <button class="btn btn-primary" id="saveChangesBtn" data-editor-commit onclick="saveEdits()">Save this page</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Lightbox -->
+<dialog class="lightbox" id="lightbox" aria-label="Full size preview" onclick="if(event.target===this)closeLightbox()">
+  <button class="lightbox-close" id="lightboxCloseBtn" aria-label="Close preview" onclick="closeLightbox()"><svg class="editor-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5"><use href="#editor-icon-close"/></svg></button>
+  <!-- Clicking the image itself used to dismiss the lightbox. -->
+  <img id="lightboxImg" src="" alt="Full size page preview" onclick="event.stopPropagation()">
+  <div class="lightbox-caption" id="lightboxCaption"></div>
+</dialog>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<footer class="forge-footer"><div><a class="forge-brand" href="#page-convert"><span class="forge-sigil" aria-hidden="true"></span>Page Forge</a><p>Forged for those who bind images into pages.</p></div><nav aria-label="Footer"><button type="button" onclick="openForgeDialog('privacyDialog')">Privacy</button><button type="button" onclick="openForgeDialog('aboutDialog')">About</button><span>Made for your browser. Kept on your device.</span></nav></footer>
+
+<dialog class="forge-dialog" id="aboutDialog" aria-labelledby="aboutTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close about">×</button></form><p class="eyebrow">The forgotten archive</p><h2 id="aboutTitle">About Page Forge</h2><p>A quiet place to gather photos and PDF pages, arrange a document, and check the paper before you forge it.</p><p>Page Forge runs in your browser. Its blue-and-gold identity uses original geometric ornament inspired by ancient archives and celestial instruments.</p><p>Paper size, margins, placement, and quality stay in your hands. Untouched PDF pages can retain their text and vectors; the binding options explain when image editing or document changes affect preservation.</p><form method="dialog"><button class="btn btn-primary">Return to the archive</button></form></div></dialog>
+<dialog class="forge-dialog" id="privacyDialog" aria-labelledby="privacyTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close privacy information">×</button></form><h2 id="privacyTitle">File requirements &amp; privacy</h2><p>Your selected images, PDFs, and generated output are processed locally in this browser. Page Forge does not send them to an upload service.</p><p>Layout preferences and appearance are saved in browser storage. Open documents and edit history stay in the current tab; closing or reloading it discards unfinished work. Your downloaded PDF remains wherever your browser saves downloads.</p><details><summary>Supported files and limits</summary><ul><li>JPEG, PNG, WebP, GIF, and BMP: up to 256 MiB, 256 megapixels, and 65,535 pixels per side. Animated images become a still picture.</li><li>Large images are fitted to lossless working copies of at most 16 megapixels and 8,192 pixels per side, or smaller to fit the available budget. Original files on your device stay unchanged.</li><li>PDFs: up to 50 MiB. Documents: up to 200 pages.</li><li>Working files and history share a 128 MiB budget. Raster exports are limited to 64 megapixels in total and 128 MiB of output.</li><li>TIFF, SVG, and unverifiable formats need conversion first.</li></ul></details><p>The fonts and PDF libraries are served with the app. A hosting provider may keep ordinary page-request logs; those requests do not contain your selected files.</p><form method="dialog"><button class="btn btn-primary">Back to Page Forge</button></form></div></dialog>
+<dialog class="forge-dialog" id="toolsDialog" aria-labelledby="toolsTitle"><div class="dialog-content"><form method="dialog"><button class="dialog-close" aria-label="Close help">×</button></form><h2 id="toolsTitle">How to use Page Forge</h2><ol><li><strong>Add files:</strong> images and PDFs share one document. Upload order becomes page order. To guarantee your exact selection sequence, add files one at a time.</li><li><strong>Arrange:</strong> drag pages, or choose Move earlier/later in Page actions. Use Select pages and the checkboxes for bulk changes.</li><li><strong>Edit:</strong> choose a page, then Edit page to rotate, flip, crop, resize, or adjust its image. Update preview prepares a tool change; Save this page commits the edits.</li><li><strong>Layout:</strong> choose Change layout for paper, margins, placement, image compression, and PDF preservation. Phones have Pages, Preview, and Layout views.</li><li><strong>Forge PDF:</strong> download your document and check the result for actual size or any omitted pages.</li></ol><div class="result-actions"><button type="button" class="btn btn-primary" onclick="document.getElementById('toolsDialog').close();document.getElementById('fileInput').click()">Add files</button><button type="button" class="btn" id="toolsEditBtn" onclick="document.getElementById('toolsDialog').close();editForgePage()" disabled>Edit active page</button></div></div></dialog>
+
+<script src="js/raster-limits.js"></script>
+<script src="js/file-intake.js"></script>
+<script src="js/pdf-loader.js"></script>
+<script src="js/pdf-images.js"></script>
+<script src="js/pdf-layout.js"></script>
+<script src="js/pdf-native-core.js"></script>
+<script src="js/pdf-native-navigation.js"></script>
+<script src="js/pdf-native-forms.js"></script>
+<script src="js/pdf-native-tags.js"></script>
+<script src="js/pdf-preserve.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pdf-import.js"></script>
+<script src="js/large-image.js"></script>
+<script src="js/import-queue.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/forge-preview.js"></script>
+<script src="js/forge-ui.js"></script>
+<script src="tmp/phone-follow-up/browser-fixture.js"></script></body>
+</html>

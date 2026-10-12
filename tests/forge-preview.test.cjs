@@ -412,6 +412,61 @@ test('pointer cancellation ends mouse panning and touch gestures stay native', a
   assert.equal(prevented, false); assert.deepEqual(h.captures, [7]);
 });
 
+test('the output canvas suppresses image context menus without suppressing other preview controls', () => {
+  const h = harness(), stage = h.elements.get('forgePreviewStage');
+  let prevented = false;
+  stage.fire('contextmenu', {target:h.canvas, preventDefault() { prevented = true; }});
+  assert.equal(prevented, true);
+  prevented = false;
+  stage.fire('contextmenu', {target:h.elements.get('previewZoomLabel'), preventDefault() { prevented = true; }});
+  assert.equal(prevented, false);
+});
+
+test('phone page controls and preview explicitly allow browser two-finger zoom', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../css/minimal-ui.css'), 'utf8');
+  assert.match(css, /body\.forge-app \.img-card\s*\{[^}]*touch-action:\s*pan-x pan-y pinch-zoom/);
+  assert.match(css, /body\.forge-app :is\(\.page-preview-button, #forgePreviewStage, #forgePreviewCanvas, \.pdf-page-item\)\s*\{\s*touch-action:\s*pan-x pan-y pinch-zoom/);
+  assert.match(css, /body\.forge-app :is\(\.page-preview-button, \.page-preview-button img, #forgePreviewCanvas, \.pdf-page-thumb canvas\)\s*\{[^}]*-webkit-touch-callout:\s*none/);
+});
+
+test('cropped pages preview their trimmed bounds while other pages keep the document paper layout', async () => {
+  const cropped = {_id:'crop', _pageId:'crop', name:'Crop.png', src:'blob:crop', rotation:0,
+    cropPageBounds:{width:900,height:300}, cropToBounds:true};
+  const unchanged = {_id:'full', _pageId:'full', name:'Full.png', src:'blob:full', rotation:0};
+  const h = harness({images:[cropped,unchanged]}); h.flush(); h.resolve(0,900,300); await settle();
+  const layout = plain(vm.runInContext('computePdfLayout(images[0], {w:900,h:300}, {pageSize:"a4", orientation:"portrait", imgFit:"contain", margin:10, dpi:300})', h.context));
+  close(layout.page.width,76.2); close(layout.page.height,25.4);
+  assert.equal(h.canvas.width,1200); assert.equal(h.canvas.height,400);
+  close(layout.image.x,0); close(layout.image.y,0);
+  assert.equal(h.elements.get('forgePlacementNote').textContent,
+    'Cropped page · trimmed size · no margins. Turn off Use cropped page size in Change layout to place it on a sheet.');
+  h.context.selectedConvertCard=1; h.api.refresh(); h.flush(); h.resolve(1,900,300); await settle();
+  assert.equal(h.canvas.width,848); assert.equal(h.canvas.height,1200);
+  assert.match(h.elements.get('forgePlacementNote').textContent,/A4 · Contain · 10 mm margins/);
+  assert.equal(h.elements.get('pageSize').value,'a4');
+  assert.equal(h.elements.get('orientation').value,'portrait');
+  assert.equal(h.elements.get('margin').value,'10');
+});
+
+test('changing a cropped page sizing choice invalidates its preview and restores paper geometry', async () => {
+  const h = harness({image:{cropPageBounds:{width:900,height:300},cropToBounds:true}});
+  h.flush(); h.resolve(0,900,300); await settle();
+  assert.equal(h.canvas.height,400);
+  h.context.images[0].cropToBounds=false; h.api.refresh(); h.flush();
+  assert.equal(h.canvas.hidden,true); h.resolve(1,900,300); await settle();
+  assert.equal(h.canvas.height,1200); assert.equal(h.canvas.width,848);
+  assert.match(h.elements.get('forgePlacementNote').textContent,/A4 · Contain · 10 mm margins/);
+});
+
+test('editing crop bounds during decode cannot paint stale trimmed dimensions', async () => {
+  const h = harness({image:{cropPageBounds:{width:900,height:300},cropToBounds:true}});
+  h.flush(); h.context.images[0].cropPageBounds.width=300;
+  h.resolve(0,900,300); await settle();
+  assert.equal(h.canvas.hidden,true);
+  h.api.refresh(); h.flush(); h.resolve(1,900,300); await settle();
+  assert.equal(h.pending.length,2); assert.equal(h.canvas.hidden,false);
+});
+
 test('normal wheel zooms an enlarged page, returns to native webpage scrolling at Fit, and stays bounded', async () => {
   const h = harness(); h.flush(); h.resolve(); await settle();
   const stage = h.elements.get('forgePreviewStage'), document = plain(h.context.images);

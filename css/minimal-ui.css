@@ -231,7 +231,17 @@ body.forge-app .panel-heading :is(span, small) { font-size: 12px; }
 body.forge-app .page-order-hint { margin: 0 0 10px; color: #9fbecf; font-size: 12px; line-height: 1.5; }
 body.forge-app #previewSelectedPageBtn { display: none; }
 body.forge-app .forge-pages .img-grid { padding: 4px; gap: 13px; max-height: min(700px, calc(100dvh - 275px)); overflow-y: auto; }
-body.forge-app .img-card { border-radius: 5px; background: #081c32; border-color: #28485e; overflow: visible; }
+body.forge-app .img-card { border-radius: 5px; background: #081c32; border-color: #28485e; overflow: visible; touch-action: pan-x pan-y pinch-zoom; }
+/* These are document controls, so a hold reorders instead of offering to save
+   their preview image. Browser scrolling and two-finger zoom remain available. */
+body.forge-app :is(.page-preview-button, .page-preview-button img, #forgePreviewCanvas, .pdf-page-thumb canvas) {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+body.forge-app :is(.page-preview-button, #forgePreviewStage, #forgePreviewCanvas, .pdf-page-item) { touch-action: pan-x pan-y pinch-zoom; }
+body.forge-app .pdf-drag-handle { touch-action: pan-y pinch-zoom; -webkit-touch-callout: none; }
 body.forge-app .img-card:hover { box-shadow: none; border-color: #5588a1; }
 body.forge-app .img-card.is-current,
 body.forge-app .img-card[aria-current=true] { border-color: var(--forge-light); box-shadow: 0 0 0 1px var(--forge-light); }

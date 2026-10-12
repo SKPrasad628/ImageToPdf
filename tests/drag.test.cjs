@@ -8,16 +8,17 @@ const appSource = ['js/pdf-layout.js', 'js/app.js', 'js/import-queue.js']
   .map(file => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8')).join('\n');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-// Keep the actual render() handlers and native event boundaries. Layout and
-// timers are outside this regression: no long-press operation is simulated.
+// Keep the actual render() handlers, timers, and document gesture boundaries.
 function harness() {
-  const elements = new Map(), windowListeners = new Map(), imports = [], timers = new Map();
+  const elements = new Map(), windowListeners = new Map(), documentListeners = new Map(), imports = [], timers = new Map();
+  let dropTarget = null;
   let serial = 0;
   const createElement = id => {
-    const classes = new Set(), listeners = new Map();
+    const classes = new Set(), listeners = new Map(), childQueries = new Map();
     let markup = '';
     const element = {
       id, tagName: 'DIV', dataset: {}, style: {}, value: '', children: [], parentElement: null,
+      offsetWidth: 100, offsetHeight: 80,
       classList: {
         add(...names) { names.forEach(name => classes.add(name)); },
         remove(...names) { names.forEach(name => classes.delete(name)); },
@@ -30,11 +31,15 @@ function harness() {
       get innerHTML() { return markup; },
       setAttribute(name, value) { this[name] = value; },
       appendChild(child) { child.parentElement = this; this.children.push(child); },
+      remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null; },
+      cloneNode() { const clone = createElement(id+'-clone'); clone.className = this.className; clone.dataset = {...this.dataset}; return clone; },
       addEventListener(name, callback) { listeners.set(name, callback); },
+      querySelector(selector) { if (!childQueries.has(selector)) childQueries.set(selector, createElement(id+selector)); return childQueries.get(selector); },
+      getBoundingClientRect() { return {left:0, top:Number(this.dataset.i || 0)*100, width:100, height:80}; },
       closest(selector) { return selector.startsWith('.img-card') && classes.has('img-card') ? this : null; },
       focus() {}, scrollIntoView() {},
       fire(name, extra = {}) {
-        const event = { target: this, prevented: false,
+        const event = { type: name, target: this, prevented: false,
           preventDefault() { this.prevented = true; }, ...extra };
         listeners.get(name)?.(event);
         return event;
@@ -55,9 +60,12 @@ function harness() {
       querySelector: selector => element(selector),
       querySelectorAll: selector => selector === '.img-card' ? element('imgGrid').children : [],
       createElement: type => createElement(`${type}-${++serial}`),
-      addEventListener() {}, removeEventListener() {}
+      elementFromPoint() { return dropTarget; },
+      addEventListener(name, callback) { documentListeners.set(name, callback); },
+      removeEventListener(name, callback) { if (documentListeners.get(name) === callback) documentListeners.delete(name); }
     },
     window: { addEventListener(name, callback) { windowListeners.set(name, callback); } },
+    navigator: {},
     localStorage: { getItem() { return null; }, setItem() {} },
     URL: { revokeObjectURL() {} },
     confirm() { return true; },
@@ -79,7 +87,15 @@ function harness() {
     snapshot('Import'); selectedConvertCard=0; selectedPdfPage=1; selectedSet=new Set([0,2]); render();`);
   }
   seed();
-  return { run, imports, timers, element,
+  return { run, imports, timers, element, documentListeners,
+    touchListenerCount() { return [...documentListeners.keys()].filter(name=>name.startsWith('touch')).length; },
+    setDropTarget(target) { dropTarget = target; },
+    flushTimers() { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback=>callback()); },
+    documentFire(name, extra = {}) {
+      const event = { type: name, touches: [], changedTouches: [], prevented: false,
+        preventDefault() { this.prevented = true; }, ...extra };
+      documentListeners.get(name)?.(event); return event;
+    },
     cards: () => element('imgGrid').children,
     state: () => plain(run('images.map(image=>image.name)')),
     selection: () => plain(run(`({convert:pageIdentity(images[selectedConvertCard]),
@@ -202,4 +218,144 @@ test('native drag cannot start during an active hold drag', () => {
   assert.equal(source.fire('dragstart', { dataTransfer: transfer() }).prevented, true);
   assert.equal(h.run('nativeCardDrag'), null);
   assert.equal(h.run('dragSrcIdx'), 1);
+});
+
+const finger = (identifier, clientX = 50, clientY = 60) => ({identifier, clientX, clientY});
+const thumbnailTarget = { closest(selector) {
+  return selector === 'button, input, label' || selector === '.page-preview-button' ? this : null;
+} };
+
+test('thumbnail holds suppress the image menu while genuine page controls retain their menus', () => {
+  const h = harness(), card = h.cards()[0];
+  assert.equal(card.fire('contextmenu', {target: thumbnailTarget}).prevented, true);
+  assert.equal(card.fire('contextmenu', {target: {closest() { return null; }}}).prevented, false);
+  card.fire('touchstart', {target: thumbnailTarget, touches: [finger(1)]});
+  assert.equal(h.run('holdActive'), false);
+  h.flushTimers();
+  assert.equal(h.run('holdActive'), true);
+  assert.equal(card.classList.contains('hold-active'), true);
+});
+
+test('a quick thumbnail tap remains native and never activates reorder', () => {
+  const h = harness(), card = h.cards()[0];
+  assert.equal(card.fire('touchstart', {target: thumbnailTarget, touches: [finger(1)]}).prevented, false);
+  assert.equal(h.documentFire('touchend', {changedTouches:[finger(1)]}).prevented, false);
+  h.flushTimers();
+  assert.equal(h.run('holdActive'), false);
+  assert.equal(h.touchListenerCount(), 0);
+  assert.deepEqual(h.state(), ['A','B','C']);
+});
+
+test('native HTML drag cannot steal a pending mobile thumbnail hold', () => {
+  const h = harness(), card = h.cards()[0];
+  card.fire('touchstart', {target:thumbnailTarget, touches:[finger(1)]});
+  assert.equal(card.fire('dragstart', {dataTransfer:transfer()}).prevented, true);
+  assert.equal(h.run('nativeCardDrag'), null); h.flushTimers();
+  assert.equal(h.run('holdActive'), true);
+});
+
+test('moving before the hold threshold cancels reorder without preventing phone scrolling', () => {
+  const h = harness(); h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1)]});
+  assert.equal(h.documentFire('touchmove', {touches:[finger(1, 51, 85)]}).prevented, false);
+  h.flushTimers();
+  assert.equal(h.run('holdActive'), false); assert.equal(h.run('holdTouch'), null);
+  assert.equal(h.touchListenerCount(), 0); assert.deepEqual(h.state(), ['A','B','C']);
+});
+
+test('two fingers beginning on a thumbnail never start a hold or prevent browser pinch', () => {
+  const h = harness();
+  assert.equal(h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1),finger(2)]}).prevented, false);
+  h.flushTimers();
+  assert.equal(h.run('holdTouch'), null); assert.equal(h.run('holdActive'), false);
+  assert.equal(h.touchListenerCount(), 0);
+});
+
+for (const active of [false,true]) {
+  for (const event of ['touchstart','touchmove']) {
+    test(`a second finger cancels ${active ? 'active' : 'pending'} reorder on ${event} without blocking pinch`, () => {
+      const h = harness(); h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1)]});
+      if (active) h.flushTimers();
+      assert.equal(h.documentFire(event, {touches:[finger(1),finger(2)]}).prevented, false);
+      h.flushTimers(); h.setDropTarget(h.cards()[2]);
+      h.documentFire('touchend', {changedTouches:[finger(1)]});
+      assert.equal(h.run('holdActive'), false); assert.equal(h.run('holdTouch'), null);
+      assert.equal(h.run('ghostEl'), null); assert.equal(h.touchListenerCount(), 0);
+      assert.deepEqual(h.state(), ['A','B','C']);
+    });
+  }
+}
+
+test('one-finger thumbnail hold reorders once, preserves selections, and consumes the generated tap', () => {
+  const h = harness(), before = h.selection();
+  h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(4)]}); h.flushTimers();
+  assert.equal(h.documentFire('touchmove', {touches:[finger(4,70,120)]}).prevented, true);
+  h.setDropTarget(h.cards()[2]);
+  assert.equal(h.documentFire('touchend', {changedTouches:[finger(4,70,120)]}).prevented, true);
+  assert.deepEqual(h.state(), ['B','C','A']); assert.deepEqual(h.selection(), before);
+  h.documentFire('touchend', {changedTouches:[finger(4)]});
+  assert.deepEqual(h.state(), ['B','C','A']); assert.equal(h.touchListenerCount(), 0);
+});
+
+test('touch cancellation never drops a page into the last touched card', () => {
+  const h = harness(); h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1)]}); h.flushTimers();
+  h.setDropTarget(h.cards()[2]);
+  assert.equal(h.documentFire('touchcancel', {changedTouches:[finger(1)]}).prevented, false);
+  assert.deepEqual(h.state(), ['A','B','C']); assert.equal(h.run('ghostEl'), null);
+});
+
+test('a grid rebuild clears active touch drag and stale document handlers', () => {
+  const h = harness(); h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1)]}); h.flushTimers();
+  h.run('render()'); h.setDropTarget(h.cards()[2]);
+  h.documentFire('touchend', {changedTouches:[finger(1)]});
+  assert.equal(h.run('holdTouch'), null); assert.equal(h.run('holdActive'), false);
+  assert.equal(h.touchListenerCount(), 0); assert.deepEqual(h.state(), ['A','B','C']);
+});
+
+test('a document revision during a pending hold rejects its stale source', () => {
+  const h = harness(); h.cards()[0].fire('touchstart', {target: thumbnailTarget, touches:[finger(1)]});
+  h.run('snapshot("Unrelated edit")'); h.flushTimers();
+  assert.equal(h.run('holdActive'), false); assert.equal(h.touchListenerCount(), 0);
+});
+
+function pdfHandle(h) {
+  h.run('drawThumb = () => {}; renderPdfEditor()');
+  return h.element('pdfPageList').children.find(item=>item.classList.contains('pdf-page-item')).querySelector('.pdf-drag-handle');
+}
+
+test('a quick touch on the PDF reorder handle stays native without rebuilding the list', () => {
+  const h = harness(), handle = pdfHandle(h), list = h.element('pdfPageList'), first = list.children[1];
+  handle.fire('touchstart', {touches:[finger(1)], stopPropagation() {}});
+  assert.equal(h.documentFire('touchend', {changedTouches:[finger(1)]}).prevented, false);
+  h.flushTimers();
+  assert.equal(h.run('pdfHoldActive'), false); assert.equal(h.touchListenerCount(), 0);
+  assert.equal(list.children[1], first);
+});
+
+test('scrolling over the PDF reorder handle cancels its pending hold', () => {
+  const h = harness(), handle = pdfHandle(h);
+  handle.fire('touchstart', {touches:[finger(1)], stopPropagation() {}});
+  assert.equal(h.documentFire('touchmove', {touches:[finger(1,50,90)]}).prevented, false); h.flushTimers();
+  assert.equal(h.run('pdfHoldActive'), false); assert.equal(h.run('pdfHoldTouch'), null);
+});
+
+test('a second finger releases an active PDF-list hold for browser pinch without dropping', () => {
+  const h = harness(), handle = pdfHandle(h);
+  handle.fire('touchstart', {touches:[finger(1)], stopPropagation() {}}); h.flushTimers();
+  assert.equal(h.run('pdfHoldActive'), true);
+  assert.equal(h.documentFire('touchmove', {touches:[finger(1),finger(2)]}).prevented, false);
+  assert.equal(h.run('pdfHoldActive'), false); assert.equal(h.run('pdfGhost'), null);
+  assert.equal(h.touchListenerCount(), 0); assert.deepEqual(h.state(), ['A','B','C']);
+});
+
+test('PDF-list touchcancel rejects a pending drop and clears the active hold without reordering', () => {
+  const h = harness(), handle = pdfHandle(h), before = h.selection();
+  handle.fire('touchstart', { touches:[finger(1)], stopPropagation() {} }); h.flushTimers();
+  h.run('pdfDropIndex=3');
+  assert.equal(h.documentFire('touchcancel', { changedTouches:[finger(1,50,360)] }).prevented, false);
+  assert.deepEqual(h.state(), ['A','B','C']); assert.deepEqual(h.selection(), before);
+  assert.equal(h.run('pdfHoldActive'), false); assert.equal(h.run('pdfHoldTouch'), null);
+  assert.equal(h.run('pdfGhost'), null); assert.equal(h.run('pdfDropIndex'), null);
+  assert.equal(h.touchListenerCount(), 0);
+  h.documentFire('touchend', { changedTouches:[finger(1,50,360)] });
+  assert.deepEqual(h.state(), ['A','B','C']);
 });

@@ -191,6 +191,8 @@ function _lightImages() {
     _pageId: pageIdentity(img),
     name: img.name, size: img.size,
     importAdjustment: img.importAdjustment ? { ...img.importAdjustment } : undefined,
+    cropPageBounds: img.cropPageBounds ? { ...img.cropPageBounds } : undefined,
+    cropToBounds: img.cropToBounds,
     pdfPageSizeMm: copyPdfPageSize(img.pdfPageSizeMm),
     originalPdfPageSizeMm: copyPdfPageSize(img.originalPdfPageSizeMm),
     pdfSource: copyPdfSource(img.pdfSource),
@@ -393,7 +395,9 @@ window.addEventListener('beforeunload', e => {
 // Personal use means the same export settings nearly every time; re-picking
 // them each session is pure friction. Dark mode already persisted — this
 // extends the same idea to the settings bar.
-const SETTING_IDS = ['pageSize','orientation','imgFit','margin','quality','filename','printDpi','oversize','pdfContentMode'];
+// Margins belong to the current document. A new session starts with None,
+// rather than restoring the old 10 mm default or a previous document's margin.
+const SETTING_IDS = ['pageSize','orientation','imgFit','quality','filename','printDpi','oversize','pdfContentMode'];
 function saveSettings() {
   try {
     const o = {};
@@ -403,6 +407,8 @@ function saveSettings() {
   } catch(e) {}
 }
 function restoreSettings() {
+  const margin = document.getElementById('margin');
+  if (margin) margin.value = '0';
   try {
     const o = JSON.parse(localStorage.getItem('photopdf-settings') || '{}');
     preserveOriginalQuality = o.preserveOriginalQuality === true;
@@ -590,9 +596,12 @@ let holdTimer = null;
 let holdCard = null;
 let ghostEl = null;
 let holdActive = false;
+let holdTouch = null;
 
 function render() {
   clearNativeCardDrag();
+  cancelTouchHold();
+  cancelPdfTouchHold();
   if (images.length && !images[selectedConvertCard]) selectedConvertCard = 0;
   const renderVersion = ++convertGridRender;
   const grid = document.getElementById('imgGrid');
@@ -659,27 +668,41 @@ function render() {
     card.addEventListener('mouseup', () => clearTimeout(holdTimer));
     card.addEventListener('mouseleave', () => { if (!holdActive) clearTimeout(holdTimer); });
 
-    // Hold-to-drag — touch (500ms hold before drag activates, scroll if released sooner)
+    // The preview thumbnail is also a hold target on phones. A quick tap still
+    // previews it; movement or another finger gives scrolling/pinch to Chrome.
+    card.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.page-preview-button')) e.preventDefault();
+    });
     card.addEventListener('touchstart', (e) => {
-      if (e.target.closest('button, input, label')) return;
+      if (e.touches.length !== 1) { cancelTouchHold(); return; }
+      if (e.target.closest('button, input, label') && !e.target.closest('.page-preview-button')) return;
+      cancelTouchHold();
       const touch = e.touches[0];
+      holdTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY,
+        card, identity: cardIdentity, revision: documentRevision, renderVersion };
+      document.addEventListener('touchstart', onTouchHoldStart, { passive: true });
+      document.addEventListener('touchmove', onTouchHoldMove, { passive: false });
+      document.addEventListener('touchend', onTouchHoldEnd, { passive: false });
+      document.addEventListener('touchcancel', onTouchHoldEnd, { passive: true });
       holdTimer = setTimeout(() => {
+        if (!holdTouch || holdTouch.card !== card || renderVersion !== convertGridRender ||
+            card.parentElement !== grid || documentRevision !== holdTouch.revision ||
+            pageIdentity(images[i]) !== cardIdentity) { cancelTouchHold(); return; }
+        clearNativeCardDrag();
         holdActive = true;
         holdCard = card;
         dragSrcIdx = i;
         card.classList.add('hold-active');
         createGhost(card, { clientX: touch.clientX, clientY: touch.clientY });
-        document.addEventListener('touchmove', onTouchHoldMove, { passive: false });
-        document.addEventListener('touchend', onTouchHoldEnd);
-        document.addEventListener('touchcancel', onTouchHoldEnd);
       }, 450);
     }, { passive: true });
-    card.addEventListener('touchend',    () => clearTimeout(holdTimer));
-    card.addEventListener('touchcancel', () => clearTimeout(holdTimer));
 
     // Standard drag-drop fallback
     card.draggable = true;
     card.addEventListener('dragstart', (e) => {
+      // A mobile browser must not replace our pending thumbnail hold with its
+      // own HTML drag. Keep the timer alive so the deliberate hold can start.
+      if (holdTouch) { e.preventDefault(); return; }
       // Native HTML5 drag beat the 200ms hold timer; without cancelling it the
       // hold would fire mid-drag and spawn a second ghost on top.
       clearTimeout(holdTimer);
@@ -828,10 +851,36 @@ function onHoldEnd(e) {
   refreshAll();
 }
 
+function cancelTouchHold() {
+  if (!holdTouch) return;
+  clearTimeout(holdTimer);
+  document.removeEventListener('touchstart', onTouchHoldStart);
+  document.removeEventListener('touchmove', onTouchHoldMove);
+  document.removeEventListener('touchend', onTouchHoldEnd);
+  document.removeEventListener('touchcancel', onTouchHoldEnd);
+  holdTouch = null;
+  if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+  if (holdCard) holdCard.classList.remove('hold-active', 'dragging');
+  document.querySelectorAll('.img-card').forEach(card => card.classList.remove('drag-over'));
+  holdActive = false; holdCard = null; dragSrcIdx = null;
+}
+
+function onTouchHoldStart(e) {
+  if (e.touches.length !== 1) cancelTouchHold();
+}
+
 function onTouchHoldMove(e) {
-  if (!holdActive || !ghostEl) return;
+  if (!holdTouch) return;
+  // Never prevent a two-finger gesture, even if its first finger started a drag.
+  if (e.touches.length !== 1 || holdTouch.revision !== documentRevision) { cancelTouchHold(); return; }
+  const touch = Array.from(e.touches).find(item => item.identifier === holdTouch.id);
+  if (!touch) { cancelTouchHold(); return; }
+  if (!holdActive) {
+    if (Math.hypot(touch.clientX - holdTouch.x, touch.clientY - holdTouch.y) > 10) cancelTouchHold();
+    return;
+  }
+  if (!ghostEl) { cancelTouchHold(); return; }
   e.preventDefault();
-  const touch = e.touches[0];
   ghostEl.style.left = (touch.clientX - ghostEl.offsetWidth / 2) + 'px';
   ghostEl.style.top  = (touch.clientY - ghostEl.offsetHeight / 2) + 'px';
   ghostEl.style.display = 'none';
@@ -843,26 +892,24 @@ function onTouchHoldMove(e) {
 }
 
 function onTouchHoldEnd(e) {
-  document.removeEventListener('touchmove', onTouchHoldMove);
-  document.removeEventListener('touchend',  onTouchHoldEnd);
-  document.removeEventListener('touchcancel', onTouchHoldEnd);
-
-  if (ghostEl) { ghostEl.remove(); ghostEl = null; }
-  if (holdCard) holdCard.classList.remove('hold-active', 'dragging');
-
-  const touch = e.changedTouches ? e.changedTouches[0] : null;
-  if (touch) {
+  if (!holdTouch) return;
+  const source = holdTouch.identity, active = holdActive;
+  const touch = Array.from(e.changedTouches || []).find(item => item.identifier === holdTouch.id);
+  const canDrop = active && e.type !== 'touchcancel' && !e.touches?.length &&
+    holdTouch.revision === documentRevision && holdTouch.renderVersion === convertGridRender;
+  cancelTouchHold();
+  if (canDrop && touch) {
+    e.preventDefault(); // A completed hold must not also click the preview button.
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     const targetCard = el && el.closest('.img-card[data-i]');
     if (targetCard) {
       const targetIdx = parseInt(targetCard.dataset.i);
-      if (targetIdx !== dragSrcIdx) {
-        changeImageOrder(dragSrcIdx, targetIdx);
+      const sourceIdx = images.findIndex(image => pageIdentity(image) === source);
+      if (sourceIdx >= 0 && targetIdx !== sourceIdx) {
+        changeImageOrder(sourceIdx, targetIdx);
       }
     }
   }
-  holdActive = false; holdCard = null; dragSrcIdx = null;
-  refreshAll();
 }
 
 function updateSummary() {
@@ -879,11 +926,13 @@ function updateSummary() {
 
 function updatePrintSizeUI() {
   const pageSize = document.getElementById('pageSize').value;
+  const active = Number.isInteger(selectedConvertCard) ? images[selectedConvertCard] : images[0];
+  const useCropBounds = !!active?.cropPageBounds && active.cropToBounds !== false;
   const printSize = document.getElementById('imgFit').value === 'actual';
   const dpi = document.getElementById('printDpi');
   const oversize = document.getElementById('oversize');
   const hint = document.getElementById('printSizeHint');
-  if (dpi) dpi.disabled = pageSize !== 'fit' && !printSize;
+  if (dpi) dpi.disabled = (pageSize !== 'fit' && !printSize && !useCropBounds) || !!(useCropBounds && active.pdfPageSizeMm);
   if (oversize) oversize.disabled = !printSize;
   if (hint) {
     hint.textContent = 'Photos use the chosen DPI for print size and Fit to image; embedded DPI is not used. PDF pages keep their saved paper dimensions. ' +
@@ -956,6 +1005,7 @@ function duplicateImage(i) {
   // copy can revoke pixels the other still needs.
   putStore(newId, { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) });
   images.splice(i+1, 0, { ...orig, _id: newId, _pageId: newId,
+    cropPageBounds: orig.cropPageBounds ? { ...orig.cropPageBounds } : undefined,
     pdfSource: copyPdfSource(orig.pdfSource), originalPdfSource: copyPdfSource(orig.originalPdfSource),
     pdfPageSizeMm: copyPdfPageSize(orig.pdfPageSizeMm),
     originalPdfPageSizeMm: copyPdfPageSize(orig.originalPdfPageSizeMm) });
@@ -994,8 +1044,12 @@ let pdfHoldEl = null;
 let pdfDropIndex = null; // where the item will be inserted (0..images.length)
 let pdfListRender = 0;
 let pdfDetailRequest = 0;
+let pdfHoldTouch = null;
 
 function renderPdfEditor() {
+  clearNativeCardDrag();
+  cancelTouchHold();
+  cancelPdfTouchHold();
   const renderVersion = ++pdfListRender;
   const wrap = document.getElementById('pdfEditorWrap');
   const list = document.getElementById('pdfPageList');
@@ -1058,6 +1112,9 @@ function renderPdfEditor() {
       if (e.target.closest('.pba') || e.target.closest('.pdf-drag-handle')) return;
       selectPdfPage(i);
     });
+    el.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.pdf-page-thumb')) e.preventDefault();
+    });
 
     // ── MOUSE hold-to-drag (desktop) ──
     const handle = el.querySelector('.pdf-drag-handle');
@@ -1087,18 +1144,23 @@ function renderPdfEditor() {
     // ── TOUCH hold-to-drag (mobile) ──
     handle.addEventListener('touchstart', (e) => {
       e.stopPropagation();
+      if (e.touches.length !== 1) { cancelPdfTouchHold(); return; }
+      cancelPdfTouchHold();
       const touch = e.touches[0];
+      pdfHoldTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY,
+        revision: documentRevision, renderVersion };
+      document.addEventListener('touchstart', onPdfTouchStart, { passive: true });
+      document.addEventListener('touchmove', onPdfTouchMove, { passive: false });
+      document.addEventListener('touchend', onPdfTouchEnd, { passive: false });
+      document.addEventListener('touchcancel', onPdfTouchEnd, { passive: true });
       pdfHoldTimer = setTimeout(() => {
+        if (!pdfHoldTouch || pdfHoldTouch.revision !== documentRevision ||
+            pdfHoldTouch.renderVersion !== pdfListRender || el.parentElement !== list) { cancelPdfTouchHold(); return; }
         // Vibrate to signal drag start
         if (navigator.vibrate) navigator.vibrate(30);
         startPdfHold(i, el, touch.clientX, touch.clientY);
-        document.addEventListener('touchmove', onPdfTouchMove, { passive: false });
-        document.addEventListener('touchend', onPdfTouchEnd);
-        document.addEventListener('touchcancel', onPdfTouchEnd);
       }, 400);
     }, { passive: true });
-    handle.addEventListener('touchend', () => clearTimeout(pdfHoldTimer));
-    handle.addEventListener('touchcancel', () => clearTimeout(pdfHoldTimer));
 
     list.appendChild(el);
     // Drop line after each item
@@ -1146,10 +1208,39 @@ function onPdfHoldEnd(e) {
   _finishPdfDrop(pdfDropIndex);
 }
 
+function clearPdfTouchListeners() {
+  document.removeEventListener('touchstart', onPdfTouchStart);
+  document.removeEventListener('touchmove', onPdfTouchMove);
+  document.removeEventListener('touchend', onPdfTouchEnd);
+  document.removeEventListener('touchcancel', onPdfTouchEnd);
+}
+
+function cancelPdfTouchHold() {
+  if (!pdfHoldTouch) return;
+  clearTimeout(pdfHoldTimer);
+  clearPdfTouchListeners();
+  pdfHoldTouch = null;
+  if (pdfGhost) { pdfGhost.remove(); pdfGhost = null; }
+  if (pdfHoldEl) pdfHoldEl.classList.remove('hold-active');
+  clearDropLines();
+  pdfHoldActive = false; pdfHoldEl = null; pdfDragSrc = null; pdfDropIndex = null;
+}
+
+function onPdfTouchStart(e) {
+  if (e.touches.length !== 1) cancelPdfTouchHold();
+}
+
 function onPdfTouchMove(e) {
-  if (!pdfHoldActive || !pdfGhost) return;
+  if (!pdfHoldTouch) return;
+  if (e.touches.length !== 1 || pdfHoldTouch.revision !== documentRevision) { cancelPdfTouchHold(); return; }
+  const touch = Array.from(e.touches).find(item => item.identifier === pdfHoldTouch.id);
+  if (!touch) { cancelPdfTouchHold(); return; }
+  if (!pdfHoldActive) {
+    if (Math.hypot(touch.clientX - pdfHoldTouch.x, touch.clientY - pdfHoldTouch.y) > 10) cancelPdfTouchHold();
+    return;
+  }
+  if (!pdfGhost) { cancelPdfTouchHold(); return; }
   e.preventDefault();
-  const touch = e.touches[0];
   pdfGhost.style.top = (touch.clientY - pdfGhost.offsetHeight / 2) + 'px';
   pdfGhost.style.left = (touch.clientX - pdfGhost.offsetWidth / 2) + 'px';
   pdfDropIndex = getPdfDropIndex(touch.clientY);
@@ -1157,9 +1248,14 @@ function onPdfTouchMove(e) {
 }
 
 function onPdfTouchEnd(e) {
-  document.removeEventListener('touchmove', onPdfTouchMove);
-  document.removeEventListener('touchend', onPdfTouchEnd);
-  document.removeEventListener('touchcancel', onPdfTouchEnd);
+  if (!pdfHoldTouch) return;
+  if (e.type === 'touchcancel' || e.touches?.length || pdfHoldTouch.revision !== documentRevision ||
+      pdfHoldTouch.renderVersion !== pdfListRender) { cancelPdfTouchHold(); return; }
+  const active = pdfHoldActive;
+  if (!active) { cancelPdfTouchHold(); return; }
+  clearPdfTouchListeners();
+  pdfHoldTouch = null;
+  if (active) e.preventDefault();
   _finishPdfDrop(pdfDropIndex);
 }
 
@@ -1261,6 +1357,7 @@ function duplicatePage(i) {
   // copy can revoke pixels the other still needs.
   putStore(newId, { ...(imgStore[orig._id] || { src: orig.src, originalSrc: orig.originalSrc, thumb: orig.thumb }) });
   images.splice(i+1, 0, { ...orig, _id: newId, _pageId: newId,
+    cropPageBounds: orig.cropPageBounds ? { ...orig.cropPageBounds } : undefined,
     pdfSource: copyPdfSource(orig.pdfSource), originalPdfSource: copyPdfSource(orig.originalPdfSource),
     pdfPageSizeMm: copyPdfPageSize(orig.pdfPageSizeMm),
     originalPdfPageSizeMm: copyPdfPageSize(orig.originalPdfPageSizeMm) });
@@ -1411,6 +1508,7 @@ async function generatePDF() {
   // Export exactly the document captured at the click, even if its live pages
   // are edited, removed, imported, or reordered while encoding awaits.
   const exportImages = images.map(image => ({ ...image, filters: { ...(image.filters || {}) },
+    cropPageBounds: image.cropPageBounds ? { ...image.cropPageBounds } : undefined,
     pdfPageSizeMm: copyPdfPageSize(image.pdfPageSizeMm),
     originalPdfPageSizeMm: copyPdfPageSize(image.originalPdfPageSizeMm),
     pdfSource: copyPdfSource(image.pdfSource), originalPdfSource: copyPdfSource(image.originalPdfSource) }));

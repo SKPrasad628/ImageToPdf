@@ -136,6 +136,7 @@
     if (!current) return null;
     const image = { ...current, filters: { ...(current.filters || {}) },
       pdfPageSizeMm: current.pdfPageSizeMm ? { ...current.pdfPageSizeMm } : undefined,
+      cropPageBounds: current.cropPageBounds ? { ...current.cropPageBounds } : undefined,
       pdfSource: current.pdfSource ? { ...current.pdfSource } : undefined };
     const settings = {
       pageSize: value('pageSize', 'a4'), orientation: value('orientation', 'auto'),
@@ -147,7 +148,7 @@
     const identity = typeof pageIdentity === 'function' ? pageIdentity(current) : current._id;
     const key = JSON.stringify([identity, index, list.length, image.src, image.name,
       image.rotation, image.flipH, image.flipV, image.filters, image.pdfPageSizeMm,
-      image.pdfSource, native, preserve, settings]);
+      image.cropPageBounds, image.cropToBounds, image.pdfSource, native, preserve, settings]);
     return { image, index, count: list.length, settings, native, preserve, key };
   }
 
@@ -183,6 +184,9 @@
   function placementNote(state, layout) {
     if (state.native) {
       return 'Native PDF page · saved paper size and rotation. Layout controls do not alter this page. The raster preview does not show every PDF interaction or annotation.';
+    }
+    if (state.image.cropPageBounds && state.image.cropToBounds !== false) {
+      return 'Cropped page · trimmed size · no margins. Turn off Use cropped page size in Change layout to place it on a sheet.';
     }
     const name = state.settings.pageSize === 'fit' ? 'Fit to image' : state.settings.pageSize.toUpperCase();
     const margin = Math.min(state.settings.margin, layout.page.width * 0.4, layout.page.height * 0.4);
@@ -280,6 +284,9 @@
 
   const stage = nodes().stage;
   if (stage) {
+    stage.addEventListener('contextmenu', event => {
+      if (event.target === nodes().canvas) event.preventDefault();
+    });
     stage.addEventListener('pointerdown', event => {
       // Touch uses the browser's native two-axis scrolling in the viewport.
       if (zoom <= 1 || event.pointerType === 'touch' || event.button !== 0) return;

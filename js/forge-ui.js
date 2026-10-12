@@ -33,10 +33,18 @@
     const controls = byId('imageLayoutControls');
     if (controls) controls.hidden = nativeOnly;
     const scope = byId('layoutScope');
-    if (scope) scope.textContent = nativeOnly ? 'PDF pages keep their saved sizes and rotation.' : 'Applies to all image pages';
+    const active = activeIndex();
+    const cropped = active !== null && !!images[active].cropPageBounds;
+    const useCropBounds = cropped && images[active].cropToBounds !== false;
+    const cropControls = byId('cropPageLayout');
+    if (cropControls) cropControls.hidden = !cropped;
+    const cropToggle = byId('cropPageBoundsToggle');
+    if (cropToggle) cropToggle.checked = !!useCropBounds;
+    if (scope) scope.textContent = nativeOnly ? 'PDF pages keep their saved sizes and rotation.'
+      : useCropBounds ? 'This crop uses its trimmed page size. Turn off Use cropped page size to use the paper settings.' : 'Applies to image pages using the chosen paper layout';
     const pageSize = byId('pageSize')?.value || 'a4';
     const fit = byId('imgFit')?.value || 'contain';
-    const print = pageSize === 'fit' || fit === 'actual';
+    const print = useCropBounds || pageSize === 'fit' || fit === 'actual';
     const advanced = byId('advancedBinding');
     if (advanced) {
       const wasHidden = advanced.hidden;
@@ -49,7 +57,7 @@
     if (summary) {
       const orientation = byId('orientation')?.value || 'auto';
       const placement = { contain: 'Full image', fill: 'Fill page', actual: 'Photo print size' }[fit] || 'Full image';
-      summary.textContent = nativeOnly ? 'Original PDF page sizes · Native content' :
+      summary.textContent = nativeOnly ? 'Original PDF page sizes · Native content' : useCropBounds ? 'Cropped page size · No margins' :
         `${pageSize === 'fit' ? 'Fit to image' : pageSize.toUpperCase()} · ${orientation === 'auto' ? 'Auto orientation' : orientation === 'portrait' ? 'Portrait' : 'Landscape'} · ${byId('margin')?.value || '0'} mm margins · ${placement}`;
     }
   }
@@ -62,7 +70,8 @@
       rotation: ((image.rotation || 0) % 360 + 360) % 360,
       flipH: !!image.flipH, flipV: !!image.flipV,
       filters: Object.keys(image.filters || {}).sort().map(key => [key, image.filters[key]]),
-      pdfSource: image.pdfSource, pdfPageSizeMm: image.pdfPageSizeMm
+      pdfSource: image.pdfSource, pdfPageSizeMm: image.pdfPageSizeMm,
+      cropPageBounds: image.cropPageBounds, cropToBounds: image.cropToBounds
     })));
     const nextSettings = JSON.stringify({
       values: ['pageSize', 'orientation', 'imgFit', 'margin', 'printDpi', 'oversize', 'pdfContentMode', 'filename']
@@ -329,6 +338,13 @@
     updateSummary();
     saveSettings();
   };
+  window.setForgeCropBounds = enabled => {
+    const index = activeIndex();
+    if (index === null || !images[index].cropPageBounds || images[index].cropToBounds === !!enabled) return;
+    images[index].cropToBounds = !!enabled;
+    snapshot('Crop page size');
+    refreshAll();
+  };
   window.openForgeDialog = id => {
     const dialog = byId(id);
     if (!dialog || typeof dialog.showModal !== 'function') return;
@@ -359,6 +375,9 @@
   window.startAnotherForge = () => {
     clearAll();
     if (images.length) return; // The user canceled Clear document.
+    const margin = byId('margin');
+    if (margin) margin.value = '0';
+    updateSummary();
     publishExportReport(null);
     byId('fileInput').focus();
     byId('dropZone').scrollIntoView({ behavior: motionBehavior(), block: 'center' });

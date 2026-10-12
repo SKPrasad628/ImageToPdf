@@ -121,6 +121,26 @@ function seedSelection(h) {
   return { convert: 'page-C', pdf: 'page-B', multiple: ['page-A', 'page-C'] };
 }
 
+test('new sessions use no margins even when old saved settings contain a margin', () => {
+  const h = harness();
+  h.element('margin').value = '20';
+  h.run(`localStorage.getItem = () => JSON.stringify({ margin: '10', orientation: 'landscape', preserveOriginalQuality: true }); restoreSettings();`);
+  assert.equal(h.element('margin').value, '0');
+  assert.equal(h.element('orientation').value, 'landscape');
+  assert.equal(h.run('preserveOriginalQuality'), true);
+  h.run(`localStorage.getItem = () => { throw new Error('Storage unavailable'); }; restoreSettings();`);
+  assert.equal(h.element('margin').value, '0');
+});
+
+test('document margin choices do not become the next session default', () => {
+  const h = harness();
+  h.element('margin').value = '20';
+  h.run(`let capturedSettings; localStorage.setItem = (key, value) => { if (key === 'photopdf-settings') capturedSettings = JSON.parse(value); }; saveSettings();`);
+  assert.equal(h.run("Object.hasOwn(capturedSettings, 'margin')"), false);
+  assert.equal(h.run('capturedSettings.orientation'), 'auto');
+  assert.equal(h.element('margin').value, '20', 'The live document keeps the chosen margin');
+});
+
 for (const dialogId of ['editorModal', 'lightbox']) {
   test(`${dialogId} cycles Tab at both boundaries and skips hidden or disabled controls`, () => {
     const h = harness(), dialog = h.element(dialogId);
